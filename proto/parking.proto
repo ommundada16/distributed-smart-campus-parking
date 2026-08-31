@@ -1,0 +1,139 @@
+syntax = "proto3";
+
+package parking;
+
+// ---- Coordinator service: called BY zone nodes AND by the API gateway ----
+service Coordinator {
+  // Called by zone nodes
+  rpc RegisterNode (RegisterNodeRequest) returns (RegisterNodeResponse);
+  rpc Heartbeat (HeartbeatRequest) returns (HeartbeatResponse);
+
+  // Called by the API gateway on behalf of the React client
+  rpc FindParking (FindParkingRequest) returns (FindParkingResponse);
+  rpc ReleaseParking (ReleaseParkingRequest) returns (ReleaseParkingResponse);
+  rpc GetSystemStatus (SystemStatusRequest) returns (SystemStatusResponse);
+}
+
+// ---- Zone service: called BY the coordinator ----
+service ZoneService {
+  rpc GetZoneStatus (ZoneStatusRequest) returns (ZoneStatusResponse);
+  rpc GetAvailableSlots (AvailableSlotsRequest) returns (AvailableSlotsResponse);
+  rpc ReserveSlot (ReserveSlotRequest) returns (ReserveSlotResponse);
+  rpc ReleaseSlot (ReleaseSlotRequest) returns (ReleaseSlotResponse);
+  // Admin/control channel used by the fault-tolerance demo buttons.
+  rpc SetFailureMode (SetFailureModeRequest) returns (SetFailureModeResponse);
+}
+
+message RegisterNodeRequest {
+  string node_id = 1;
+  string zone_id = 2;
+  string host = 3;
+  int32 grpc_port = 4;
+  int32 total_slots = 5;
+}
+
+message RegisterNodeResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message HeartbeatRequest {
+  string node_id = 1;
+}
+
+message HeartbeatResponse {
+  bool acknowledged = 1;
+  string server_time = 2;
+}
+
+message ZoneStatusRequest {
+}
+
+message ZoneStatusResponse {
+  string zone_id = 1;
+  string node_id = 2;
+  int32 total_slots = 3;
+  int32 available_slots = 4;
+  int32 occupied_slots = 5;
+  int32 reserved_slots = 6;
+  string status = 7;
+}
+
+message AvailableSlotsRequest {
+}
+
+message AvailableSlotsResponse {
+  int32 available_count = 1;
+  repeated string slot_ids = 2;
+}
+
+message ReserveSlotRequest {
+  string reservation_id = 1;
+}
+
+message ReserveSlotResponse {
+  bool success = 1;
+  string slot_id = 2;
+  string message = 3;
+}
+
+message ReleaseSlotRequest {
+  string slot_id = 1;
+  string reservation_id = 2;
+}
+
+message ReleaseSlotResponse {
+  bool success = 1;
+  string message = 2;
+  string slot_id = 3;
+}
+
+message FindParkingRequest {
+}
+
+message FindParkingResponse {
+  bool success = 1;
+  string zone_id = 2;
+  string node_id = 3;
+  string slot_id = 4;
+  string reservation_id = 5;
+  string message = 6;
+}
+
+message ReleaseParkingRequest {
+  string reservation_id = 1;
+}
+
+message ReleaseParkingResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message SystemStatusRequest {
+}
+
+message NodeInfo {
+  string node_id = 1;
+  string zone_id = 2;
+  string host = 3;
+  int32 port = 4;
+  string status = 5;
+  string last_heartbeat = 6;
+  int32 total_slots = 7;
+  int32 available_slots = 8;
+  int32 occupied_slots = 9;
+  int32 reserved_slots = 10;
+}
+
+message SystemStatusResponse {
+  repeated NodeInfo nodes = 1;
+}
+
+message SetFailureModeRequest {
+  bool simulate_failure = 1;
+}
+
+message SetFailureModeResponse {
+  bool success = 1;
+  string status = 2;
+}
