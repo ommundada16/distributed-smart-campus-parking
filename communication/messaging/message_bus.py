@@ -15,9 +15,12 @@ import redis
 import config
 
 _client = None
+_blocking_client = None
 
 
 def get_redis_client():
+    """Client for quick one-shot calls (publish, one-off reads) — fails fast
+    if Redis is unreachable so a broker outage can't hang the caller."""
     global _client
     if _client is None:
         _client = redis.Redis(
@@ -25,6 +28,20 @@ def get_redis_client():
             socket_connect_timeout=1, socket_timeout=1,
         )
     return _client
+
+
+def _get_blocking_client(block_ms: int):
+    """Separate client for consume_events()'s long-poll XREAD. Its socket
+    timeout must be longer than the server-side block time, or the client
+    library raises a spurious read-timeout every time nothing new arrives
+    within 1 second — which is most of the time."""
+    global _blocking_client
+    if _blocking_client is None:
+        _blocking_client = redis.Redis(
+            host=config.REDIS_HOST, port=config.REDIS_PORT, decode_responses=True,
+            socket_connect_timeout=1, socket_timeout=(block_ms / 1000) + 5,
+        )
+    return _blocking_client
 
 
 def publish_event(event_type: str, source: str, data: dict | None = None):
@@ -48,7 +65,7 @@ def consume_events(last_id: str = "$", block_ms: int = 2000):
     Starts from `last_id` ('$' = only events published after this call).
     Independent from any RPC path — this is a separate consumer loop.
     """
-    client = get_redis_client()
+    client = _get_blocking_client(block_ms)
     while True:
         try:
             response = client.xread({config.REDIS_STREAM: last_id}, block=block_ms, count=10)
