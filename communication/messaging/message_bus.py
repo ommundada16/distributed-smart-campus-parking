@@ -20,7 +20,10 @@ _client = None
 def get_redis_client():
     global _client
     if _client is None:
-        _client = redis.Redis(host=config.REDIS_HOST, port=config.REDIS_PORT, decode_responses=True)
+        _client = redis.Redis(
+            host=config.REDIS_HOST, port=config.REDIS_PORT, decode_responses=True,
+            socket_connect_timeout=1, socket_timeout=1,
+        )
     return _client
 
 

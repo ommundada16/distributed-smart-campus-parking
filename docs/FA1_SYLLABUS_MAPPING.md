@@ -13,7 +13,7 @@ in the running system. Nothing below is aspirational.
 | Design Issues | Naming (node IDs, zone IDs, slot IDs), communication style choice per use case, failure handling | System Monitor (identifiers), Fault Tolerance Demonstration |
 | Middleware | `communication/` package: `grpc/`, `messaging/`, `p2p/`, `websocket/` — application code never touches sockets/channels directly | Code walkthrough of `communication/` |
 | Overview of Distributed Systems | The whole running system: 6 independent processes cooperating over 4 different communication styles | Full live demo |
-| Model of Distributed Computations | Each zone is an independent process with its own state (SQLite rows) and its own thread of control, coordinated only via messages/RPC — no shared memory | Start each service in its own terminal; show `Get-Process` / task manager listing 5 separate python processes |
+| Model of Distributed Computations | Each zone is an independent process with its own in-memory state and its own thread of control, coordinated only via messages/RPC — no shared memory between processes | Start each service in its own terminal; show `Get-Process` / task manager listing 5 separate python processes |
 | Role of Virtualization | Redis runs in a Docker container; documented as optional deployment packaging, not required for the demo | `docker-compose.yml` (Redis only) |
 | Distributed Multimedia Systems | **Not implemented** — out of scope for a parking allocation problem. See note below. | — |
 
@@ -22,10 +22,10 @@ in the running system. Nothing below is aspirational.
 | Concept | Implementation | Demonstration |
 |---|---|---|
 | Communication Fundamentals | Sockets (TCP for P2P), gRPC channels (RPC), pub/sub (Redis Streams), full-duplex sockets (WebSocket) — four distinct styles used for four distinct purposes | [COMMUNICATION.md](COMMUNICATION.md) |
-| RPC | gRPC + Protocol Buffers (`proto/parking.proto`). Coordinator ↔ Zones (`GetAvailableSlots`, `ReserveSlot`, `ReleaseSlot`, `GetZoneStatus`), Zones → Coordinator (`RegisterNode`, `Heartbeat`), Gateway → Coordinator (`FindParking`, `ReleaseParking`, `GetSystemStatus`) | Terminal logs show `RPC -> ZONE_A GetAvailableSlots()` / `RPC <- ZONE_A available_count=...` live during Find Parking |
-| Message-Oriented Communication | Redis Streams (`parking_events` stream). Producers (coordinator, zones) publish and move on; consumers (gateway's event bridge) read independently, at their own pace | System Monitor's Event Activity panel; `redis-cli XRANGE parking_events - +` |
-| Stream-Oriented Communication | WebSocket (`/ws`) pushes every Redis event to the browser the instant it's published — no polling for the live parts of the UI | Reserve/release/fail a zone and watch the UI update without a page refresh |
-| P2P Messaging | Raw TCP sockets directly between zone processes (Zone A ↔ Zone B ↔ Zone C), bypassing the coordinator entirely | Zone terminal logs show `P2P -> ZONE_B CAPACITY_REQUEST` / `P2P <- ZONE_B AVAILABLE_SLOTS=...` every 15s |
+| RPC | gRPC + Protocol Buffers (`proto/parking.proto`). Coordinator ↔ Zones (`GetAvailableSlots`, `ReserveSlot`, `ReleaseSlot`, `GetZoneStatus`), Zones → Coordinator (`RegisterNode`, `Heartbeat`), Gateway → Coordinator (`FindParking`, `ReleaseParking`, `GetSystemStatus`) | Terminal logs show `RPC -> ZONE_A GetAvailableSlots()`; the browser's Live Communication Activity feed shows the same calls tagged **RPC** |
+| Message-Oriented Communication | Redis Streams (`parking_events` stream). Producers (coordinator, zones) publish and move on; consumers (gateway's event bridge) read independently, at their own pace | Live Communication Activity feed, entries tagged **MESSAGE**; `redis-cli XRANGE parking_events - +` |
+| Stream-Oriented Communication | WebSocket (`/ws`) pushes every event to the browser the instant it's published — no polling for the live parts of the UI | Reserve/release/fail a zone and watch the whole page update without a refresh |
+| P2P Messaging | Raw TCP sockets directly between zone processes (Zone A ↔ Zone B ↔ Zone C), bypassing the coordinator entirely | Zone terminal logs show `P2P -> ZONE_B CAPACITY_REQUEST`; the browser's activity feed shows the same exchange tagged **P2P**, every 15s |
 | WebRTC | **Not implemented** — see note below | — |
 | Names, Identifiers and Addresses | `node_id` (`ZONE_A`), `zone_id` (`PARKING_A`), `slot_id` (`A-01`), `reservation_id` (`RES-XXXXXXXX`), host/port pairs | System Monitor table; `config.py` |
 | Fault Tolerance | Heartbeat every 3s, coordinator marks a node `OFFLINE` after 9s of silence, excludes it from allocation, publishes `NODE_FAILED`; node re-registers and publishes `NODE_RECOVERED` on return | Fault Tolerance Demonstration buttons in System Monitor |

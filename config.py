@@ -31,5 +31,3 @@ REDIS_STREAM = "parking_events"
 
 HEARTBEAT_INTERVAL_SEC = 3
 HEARTBEAT_TIMEOUT_SEC = 9  # coordinator marks a node OFFLINE if no heartbeat within this window
-
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "database", "parking.db")

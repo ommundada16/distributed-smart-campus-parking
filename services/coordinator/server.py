@@ -96,6 +96,10 @@ class CoordinatorServicer(parking_pb2_grpc.CoordinatorServicer):
                 _log(f"RPC -> {node.node_id} GetAvailableSlots()")
                 resp = stub.GetAvailableSlots(parking_pb2.AvailableSlotsRequest(), timeout=2)
                 _log(f"RPC <- {node.node_id} available_count={resp.available_count}")
+                publish_event("RPC_CALL", source="coordinator", data={
+                    "target": node.node_id, "method": "GetAvailableSlots()",
+                    "result": f"{resp.available_count} available",
+                })
                 if resp.available_count <= 0:
                     continue
 
@@ -103,6 +107,10 @@ class CoordinatorServicer(parking_pb2_grpc.CoordinatorServicer):
                 reserve_resp = stub.ReserveSlot(
                     parking_pb2.ReserveSlotRequest(reservation_id=reservation_id), timeout=2
                 )
+                publish_event("RPC_CALL", source="coordinator", data={
+                    "target": node.node_id, "method": "ReserveSlot()",
+                    "result": reserve_resp.slot_id if reserve_resp.success else "failed",
+                })
                 if not reserve_resp.success:
                     continue
 

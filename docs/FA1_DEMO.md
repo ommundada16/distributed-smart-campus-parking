@@ -1,6 +1,11 @@
 # FA-1 Demo Script
 
-Total time: ~8-10 minutes. Have 5 terminal windows plus the browser ready.
+You explain this system **through the browser page**, top to bottom — you should
+not need to open a code editor during the viva. Terminal windows are there as
+supporting proof ("see, it's really happening"), not as something you narrate
+line by line.
+
+Total time: ~8 minutes. Have 5 terminal windows plus the browser ready.
 
 ## Setup (before the professor arrives)
 
@@ -34,71 +39,74 @@ cd frontend
 npm run dev
 ```
 
-Open the browser at `http://localhost:5173`.
+Open the browser at `http://localhost:5173`. The whole demo happens on this one
+page — you scroll down through it section by section.
 
-## Script
+## The script (narrate while scrolling down the page)
 
-**Step 1 — Point at the terminals.** "Six independent processes: a coordinator,
-three parking zones, an API gateway, and a message broker (Redis) — no shared
-memory between them, only network calls."
+**Section 1 — Live Snapshot.** "This is pulled live from the coordinator over
+gRPC, not hardcoded — 60 slots across 3 independent zone processes, refreshed
+either by a WebSocket push or a 5-second poll as a fallback."
 
-**Step 2 — Show node registration.** Point at Terminal 1 (coordinator). Show the
-`ZONE_A/B/C registered` lines that appeared as terminals 2-4 started.
+**Section 2 — Parking Zones.** "Each card is one independent OS process — Zone
+A, B, C — each owning its own 20 slots in memory. They don't share a database
+or any memory with each other or with the coordinator."
 
-**Step 3 — Open System Monitor.** Explain the table: each row is one real process,
-`status` and `last heartbeat` come live from the coordinator's in-memory registry
-over gRPC, not from a hardcoded list.
+**Section 3 — Find & Reserve Parking. Click "Find Parking."** Watch the result
+appear (Zone / Slot / Reservation ID), then immediately scroll to Section 5.
 
-**Step 4 — Open Find Parking. Click "Find Parking."**
+**Section 5 — Live Communication Activity.** Point at the new rows that just
+appeared:
+- an **RPC** row: `coordinator → ZONE_A → GetAvailableSlots()` — "this is a
+  real gRPC call, request/response, the caller waits for the answer."
+- a **MESSAGE** row: `PARKING_RESERVED` — "the zone published this to a Redis
+  stream and moved on; it didn't wait for anyone to read it."
+- notice the page updated **without a refresh** — "that message was pushed to
+  this browser over a WebSocket connection the instant it was published; that's
+  the stream-oriented style, a third, different communication pattern."
+- every ~15 seconds, a **P2P** row appears on its own:
+  `ZONE_A → ZONE_B → CAPACITY_REQUEST (AVAILABLE_SLOTS=...)` — "this is zone-to
+  -zone directly over a TCP socket; the coordinator is not involved at all,
+  which is what makes it peer-to-peer rather than RPC."
 
-**Step 5 — Immediately switch to Terminal 1.** Show the lines:
-```
-FindParking: 3 online zone(s) to check
-RPC -> ZONE_A GetAvailableSlots()
-RPC <- ZONE_A available_count=...
-```
-This is real gRPC, not a mocked function call.
+**Back to Section 3 — release the reservation** (button appears once you have
+one). Point out a new `MESSAGE: PARKING_RELEASED` row appears.
 
-**Step 6 — Back in the browser**, show the returned Zone / Slot / Reservation ID.
+**Section 4 — System Monitor table.** "Every row here — status, last heartbeat
+— comes from the coordinator's live in-memory registry. Nothing is typed in by
+hand."
 
-**Step 7 — Show the Redis message.** Either open System Monitor's Event Activity
-panel (already updated), or run in a spare terminal:
-```bash
-docker exec -it parking_redis redis-cli XRANGE parking_events - + COUNT 5
-```
+**Section 2 again — click "Fail" on Zone B.** Within ~9 seconds:
+- Zone B's badge flips to OFFLINE, live, no refresh.
+- A `MESSAGE: NODE_FAILED` row appears in the activity feed.
+- (Optional, for extra proof) switch to Terminal 1 and show
+  `ZONE_B missed heartbeats -> OFFLINE`.
 
-**Step 8 — Point out the UI updated without a refresh.** That update arrived over
-the WebSocket connection, fed by the same Redis stream — mention this is a
-*different* communication style from the RPC in step 5, deliberately.
+**Click "Find Parking" again.** The result comes back from Zone A or C —
+mention: "the coordinator's registry marked Zone B offline, so it skipped it
+when choosing a zone for this request — that's the fault-tolerance goal:
+failure of one node doesn't break the whole service, and it doesn't get routed
+new requests while it's down."
 
-**Step 9 — Show P2P.** Point at Terminal 3 or 4 (Zone B/C); every 15s they log
-`P2P -> ZONE_x CAPACITY_REQUEST` / `P2P <- ZONE_x AVAILABLE_SLOTS=...`. This goes
-directly zone-to-zone over TCP, bypassing the coordinator entirely.
+**Click "Recover" on Zone B.** Badge flips back to ONLINE, `NODE_RECOVERED`
+event appears. "The zone process never died — we told it to stop responding,
+the coordinator's heartbeat timeout is what actually detected and excluded it,
+same as it would for a real crash."
 
-**Step 10 — Fail Zone B.** In System Monitor, click "Fail" on Zone B.
+## If asked "why is the client-server part not more complicated?"
 
-**Step 11 — Show heartbeat failure detection.** Within ~9 seconds Terminal 1 logs:
-```
-ZONE_B missed heartbeats -> OFFLINE
-```
-and the UI's badge for Zone B flips to OFFLINE live, plus a `NODE_FAILED` event
-appears in the Event Activity panel.
-
-**Step 12 — Request another parking slot** (Find Parking again). Show Terminal 1's
-log: `FindParking: 2 online zone(s) to check` — Zone B is skipped.
-
-**Step 13 — Recover Zone B.** Click "Recover." Terminal 3 shows it re-registering;
-Terminal 1 shows it added back; the UI flips to ONLINE and a `NODE_RECOVERED`
-event appears.
-
-**Step 14 — Close by pointing at [`docs/FA1_SYLLABUS_MAPPING.md`](FA1_SYLLABUS_MAPPING.md)**
-and walking through which Unit 1/2 concept each thing just shown maps to.
+Because the interesting distributed-systems behavior lives on the *backend* —
+between the gateway, coordinator, and zones. The browser is just one more
+client talking to the gateway over HTTP/WebSocket; adding more complexity there
+wouldn't demonstrate anything new about distributed systems.
 
 ## If something goes wrong live
 
-- **A zone won't register:** check the coordinator terminal started first and is
-  still running on port 5000; restart the zone.
-- **Redis errors:** confirm `docker ps` shows `parking_redis` running; `docker
-  compose up -d` again if not.
-- **Frontend shows stale data:** the dashboard also polls every 5s as a fallback
+- **A zone won't register:** check the coordinator terminal started first and
+  is still running on port 5000; restart the zone.
+- **Redis errors / activity feed stops updating:** confirm `docker ps` shows
+  `parking_redis` running; `docker compose up -d` again if not. The gateway's
+  Redis calls time out in ~1 second, so a Redis outage won't hang the rest of
+  the demo — parking requests still work, you just won't see new activity rows.
+- **Frontend shows stale data:** the page also polls every 5s as a fallback
   even if the WebSocket drops — wait a few seconds, or refresh the page.

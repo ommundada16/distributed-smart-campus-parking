@@ -4,7 +4,7 @@
 
 ```
                   ┌─────────────────┐
-                  │   React Client   │  (Dashboard / Find Parking / My Reservation / System Monitor)
+                  │   React Client   │  (one page: zones, find/reserve, monitor, activity feed)
                   └────────┬─────────┘
                            │ HTTP + WebSocket
                   ┌────────▼─────────┐
@@ -22,7 +22,7 @@
                │ :5001   │◄─►│  :5002   │◄─►│  :5003   │   (P2P over raw TCP)
                └────┬────┘   └────┬─────┘   └────┬─────┘
                     │              │              │
-                    └──── each zone owns its own SQLite rows ────┘
+                    └── each zone keeps its own slots in memory ──┘
                                    │
                     all 3 processes publish to
                                    ▼
@@ -61,9 +61,10 @@ distributed-systems sense; the shared source file is just avoiding copy-paste.
 - **Coordinator** — the only component with a global view. Keeps an in-memory node
   registry, runs a heartbeat-timeout monitor, and does the RPC fan-out to zones
   when the gateway asks it to find/release parking.
-- **Zone (A/B/C)** — owns 20 physical slots. Answers RPCs about its own state,
-  answers P2P capacity queries from its neighbor zone(s), and is the only thing
-  in the system that touches its own rows in SQLite.
+- **Zone (A/B/C)** — owns 20 physical slots, held in a plain Python dict in that
+  process's own memory. Answers RPCs about its own state and answers P2P
+  capacity queries from its neighbor zone(s). No other process ever touches
+  this state directly — that's what "owns" means here.
 - **API Gateway** — the single HTTP-facing service. Translates REST/WebSocket
   from the browser into gRPC calls to the coordinator, and bridges Redis Stream
   events onto the browser's WebSocket connection.
@@ -73,9 +74,11 @@ distributed-systems sense; the shared source file is just avoiding copy-paste.
 
 ## Data
 
-SQLite (`database/parking.db`), two tables: `slots` and `reservations`. Each zone
-only ever reads/writes rows where `zone_id` matches itself, so despite the shared
-file, there's effectively no cross-zone write contention.
+No database. Each zone keeps its slots as a Python dict (`slot_id -> status`) in
+its own process memory, protected by a lock since gRPC handlers run on a thread
+pool. This is a deliberate simplification: persistence isn't a Unit 1/2 topic,
+and a database would only add a concept to explain without changing anything
+about how the distributed communication works.
 
 ## Optional: Docker
 

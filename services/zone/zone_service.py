@@ -5,7 +5,8 @@ processes (Zone A / B / C), each parametrized by --zone. This keeps the
 code DRY without the three zones being classes inside one process — what
 actually makes them "independent" is that each is its own `python`
 process with its own gRPC server, its own TCP P2P server, and its own
-heartbeat thread.
+heartbeat thread. Each zone keeps its own slot state in a plain Python
+dict, in memory — no shared database, no other process ever touches it.
 
 Run standalone:
     python -m services.zone.zone_service --zone A
@@ -16,6 +17,7 @@ Run standalone:
 import sys
 import os
 import argparse
+import random
 import threading
 import time
 
@@ -25,11 +27,54 @@ import grpc
 from concurrent import futures
 
 import config
-import database.db as db
 from communication.grpc import parking_pb2, parking_pb2_grpc
 from communication.grpc.grpc_client import coordinator_stub
 from communication.messaging.message_bus import publish_event
 from communication.p2p.p2p_client import start_p2p_server, send_p2p_message
+
+
+class SlotStore:
+    """In-memory slot state for one zone. Guarded by a lock since gRPC
+    handlers run on a thread pool."""
+
+    def __init__(self, prefix: str, total_slots: int, occupied_ratio: float = 0.25):
+        self.lock = threading.Lock()
+        rng = random.Random(42)
+        n_occupied = max(1, int(total_slots * occupied_ratio))
+        occupied_indices = set(rng.sample(range(1, total_slots + 1), n_occupied))
+        self.slots = {
+            f"{prefix}-{i:02d}": ("OCCUPIED" if i in occupied_indices else "AVAILABLE")
+            for i in range(1, total_slots + 1)
+        }
+        self.reservations = {}  # reservation_id -> slot_id
+
+    def counts(self):
+        with self.lock:
+            result = {"AVAILABLE": 0, "OCCUPIED": 0, "RESERVED": 0}
+            for status in self.slots.values():
+                result[status] += 1
+            return result
+
+    def available_ids(self):
+        with self.lock:
+            return [sid for sid, status in self.slots.items() if status == "AVAILABLE"]
+
+    def reserve_any(self, reservation_id: str):
+        with self.lock:
+            for slot_id, status in self.slots.items():
+                if status == "AVAILABLE":
+                    self.slots[slot_id] = "RESERVED"
+                    self.reservations[reservation_id] = slot_id
+                    return slot_id
+            return None
+
+    def release(self, reservation_id: str):
+        with self.lock:
+            slot_id = self.reservations.pop(reservation_id, None)
+            if slot_id is None:
+                return None
+            self.slots[slot_id] = "AVAILABLE"
+            return slot_id
 
 
 class ZoneRuntime:
@@ -44,6 +89,7 @@ class ZoneRuntime:
         self.p2p_port = cfg["p2p_port"]
         self.peers = config.P2P_PEERS.get(zone_key, [])
         self.simulate_failure = False
+        self.store = SlotStore(zone_key, self.total_slots)
 
 
 def _log(node_id, msg):
@@ -60,7 +106,7 @@ class ZoneServicer(parking_pb2_grpc.ZoneServiceServicer):
 
     def GetZoneStatus(self, request, context):
         self._check_alive(context)
-        counts = db.get_zone_counts(self.rt.zone_id)
+        counts = self.rt.store.counts()
         return parking_pb2.ZoneStatusResponse(
             zone_id=self.rt.zone_id, node_id=self.rt.node_id, total_slots=self.rt.total_slots,
             available_slots=counts["AVAILABLE"], occupied_slots=counts["OCCUPIED"],
@@ -69,12 +115,12 @@ class ZoneServicer(parking_pb2_grpc.ZoneServiceServicer):
 
     def GetAvailableSlots(self, request, context):
         self._check_alive(context)
-        slot_ids = db.get_available_slot_ids(self.rt.zone_id)
+        slot_ids = self.rt.store.available_ids()
         return parking_pb2.AvailableSlotsResponse(available_count=len(slot_ids), slot_ids=slot_ids)
 
     def ReserveSlot(self, request, context):
         self._check_alive(context)
-        slot_id = db.reserve_any_slot(self.rt.zone_id, request.reservation_id)
+        slot_id = self.rt.store.reserve_any(request.reservation_id)
         if slot_id is None:
             return parking_pb2.ReserveSlotResponse(success=False, slot_id="", message="No available slot")
         _log(self.rt.node_id, f"Reserved {slot_id} (reservation {request.reservation_id})")
@@ -82,7 +128,7 @@ class ZoneServicer(parking_pb2_grpc.ZoneServiceServicer):
 
     def ReleaseSlot(self, request, context):
         self._check_alive(context)
-        slot_id = db.release_slot(self.rt.zone_id, request.reservation_id)
+        slot_id = self.rt.store.release(request.reservation_id)
         if slot_id is None:
             return parking_pb2.ReleaseSlotResponse(success=False, message="Unknown or already-released reservation")
         _log(self.rt.node_id, f"Released {slot_id} (reservation {request.reservation_id})")
@@ -103,7 +149,7 @@ def _register_with_coordinator(rt: ZoneRuntime):
         stub.RegisterNode(parking_pb2.RegisterNodeRequest(
             node_id=rt.node_id, zone_id=rt.zone_id, host=rt.host,
             grpc_port=rt.port, total_slots=rt.total_slots,
-        ), timeout=3)
+        ), timeout=5)
         _log(rt.node_id, f"Registering with coordinator... done")
     except grpc.RpcError as exc:
         _log(rt.node_id, f"Could not reach coordinator to register: {exc.code()}")
@@ -125,13 +171,18 @@ def _p2p_handle_message(rt: ZoneRuntime, message: str) -> str:
     if message == "CAPACITY_REQUEST":
         if rt.simulate_failure:
             return "UNAVAILABLE"
-        counts = db.get_zone_counts(rt.zone_id)
+        counts = rt.store.counts()
         return f"AVAILABLE_SLOTS={counts['AVAILABLE']}"
     return "UNKNOWN_COMMAND"
 
 
 def _p2p_poll_loop(rt: ZoneRuntime):
-    """Periodically ask peer zones for their capacity, purely P2P (no coordinator involved)."""
+    """Periodically ask peer zones for their capacity, purely P2P (no coordinator involved).
+
+    Also publishes a P2P_MESSAGE event so the browser's live activity feed can
+    show this exchange next to the RPC and message-bus activity — otherwise
+    P2P traffic would only ever be visible in the terminal logs.
+    """
     while True:
         time.sleep(15)
         if rt.simulate_failure:
@@ -142,14 +193,13 @@ def _p2p_poll_loop(rt: ZoneRuntime):
             reply = send_p2p_message(config.HOST, peer_cfg["p2p_port"], "CAPACITY_REQUEST")
             if reply:
                 _log(rt.node_id, f"P2P <- {peer_cfg['node_id']} {reply}")
+                publish_event("P2P_MESSAGE", source=rt.node_id, data={
+                    "peer": peer_cfg["node_id"], "request": "CAPACITY_REQUEST", "reply": reply,
+                })
 
 
 def serve(zone_key: str):
     rt = ZoneRuntime(zone_key)
-    prefix = zone_key
-
-    db.init_schema()
-    db.init_zone_slots(rt.zone_id, prefix, rt.total_slots)
 
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
     parking_pb2_grpc.add_ZoneServiceServicer_to_server(ZoneServicer(rt), server)
