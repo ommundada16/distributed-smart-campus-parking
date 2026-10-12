@@ -1,108 +1,89 @@
 # Distributed Smart Campus Parking System
 
-A B.Tech Distributed Systems FA-1 mini project: real-time parking allocation and
-monitoring across three independent parking zones, coordinated by a central
-coordinator, using four distinct communication styles (RPC, message-oriented,
-stream-oriented, and P2P).
+B.Tech Distributed Systems project, built in two phases:
 
-See [`docs/FA1_SYLLABUS_MAPPING.md`](docs/FA1_SYLLABUS_MAPPING.md) for exactly
-which syllabus concepts this implements, [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
-for the full architecture, [`docs/COMMUNICATION.md`](docs/COMMUNICATION.md) for
-how/why each communication style is used, and [`docs/FA1_DEMO.md`](docs/FA1_DEMO.md)
-for a step-by-step demo script.
+* **FA-1 (Units 1–2):** three parking zones coordinated by one coordinator, using RPC (gRPC), message-oriented (Redis Streams), stream-oriented (WebSocket) and P2P (TCP) communication, with heartbeat fault tolerance. Docs: [`docs/FA1_*.md`](docs/FA1_SYLLABUS_MAPPING.md).
+* **FA-2 (Units 3–4, all units combined):** the same system, now with the problems that only exist *because* it is distributed — leader election, logical/vector clocks and Berkeley clock sync, mutual exclusion, global snapshots, a replicated hash-chained ledger, load balancing, containers/Kubernetes, a serverless runtime and MapReduce analytics.
 
-## Tech stack
+| Read this | For |
+|---|---|
+| [`docs/FA2_SYLLABUS_MAPPING.md`](docs/FA2_SYLLABUS_MAPPING.md) | Every syllabus topic → code → demo (and what is *not* implemented) |
+| [`docs/FA2_ARCHITECTURE.md`](docs/FA2_ARCHITECTURE.md) | Architecture, server inventory & configuration, trade-offs (CAP), limitations |
+| [`docs/FA2_DEMO.md`](docs/FA2_DEMO.md) | 12-minute demo script + likely viva questions |
 
-- Python, gRPC + Protocol Buffers (RPC), Redis Streams (messaging), FastAPI +
-  WebSockets (streaming), raw TCP sockets (P2P)
-- React + Vite — one single-page dashboard, no router (frontend)
-- Docker Compose — Redis only; every other service runs as a plain OS process
-- No database — each zone keeps its slots in an in-memory Python dict; not a
-  Unit 1/2 topic, so it was left out to keep the codebase small
+## What FA-2 adds
+
+| Topic | Implementation | Dashboard tab |
+|---|---|---|
+| Leader election + beacon (Unit 3) | 3 coordinator replicas, Bully election with terms — `distributed/election.py` | Leader Election |
+| Clock sync, Lamport, vector clocks (Unit 3) | Berkeley; clocks carried by gRPC interceptors — `distributed/clocks.py`, `distributed/berkeley.py` | Clocks |
+| Mutual exclusion (Unit 3) | Ricart-Agrawala across zones — `distributed/mutex.py` | Mutual Exclusion |
+| Global state (Unit 3) | Chandy-Lamport snapshot — `distributed/snapshot.py` | Global Snapshot |
+| Blockchain / ledger (Unit 4) | Majority-committed, hash-chained replicated ledger — `distributed/ledger.py` | Ledger |
+| Load balancing (Units 1, 4) | first-fit / round-robin / least-loaded policies; Nginx + K8s request balancing | Load Balancing, Cloud |
+| Serverless (Unit 4) | Local FaaS runtime + Lambda-style functions — `services/faas`, `functions/` | Cloud |
+| Hadoop (Unit 4) | Mini MapReduce with combiner — `services/analytics` | Cloud |
+| Kubernetes / virtualization (Unit 4, Unit 1) | Docker Compose (12 containers with limits) + `k8s/` manifests | Cloud |
+
+## Architecture
+
+```
+Browser → Nginx (round-robin LB, edge cache, UI) → gateway-1/2 → elected coordinator (1 of 3)
+        → zone A / B / C  ⇄  zone-to-zone gRPC/TCP     Redis Streams (events) · FaaS · MapReduce
+```
+
+## Run it
+
+### Option 1 — Docker Compose (recommended, the full 12-node deployment)
+
+```bash
+docker compose up --build -d
+docker compose ps          # server inventory
+```
+Open **http://localhost:8080**. Stop with `docker compose down`.
+
+### Option 2 — local processes (no containers except Redis)
+
+```bash
+python -m venv venv
+venv\Scripts\pip install -r requirements.txt      # Windows   (source venv/bin/activate on macOS/Linux)
+python scripts/run_local.py                        # starts Redis (Docker) + 9 Python processes
+cd frontend && npm install && npm run dev          # in a second terminal
+```
+Open **http://localhost:5173**. Logs are written to `logs/`.
+
+### Kubernetes (optional)
+
+See the header of [`k8s/00-namespace-config.yaml`](k8s/00-namespace-config.yaml) (build the two images, load them into kind/minikube, `kubectl apply -f k8s/`).
+
+## Tests
+
+```bash
+pytest tests/unit -v                                   # algorithms against an in-memory network, no services needed
+pytest tests/test_integration.py -v                    # end-to-end against the running system (local mode)
+GATEWAY_URL=http://localhost:8080 pytest tests/test_integration.py -v   # …or against Docker Compose
+```
+
+The integration suite exercises election/failover, Berkeley sync, mutual exclusion on/off, the snapshot, ledger tamper/repair, zone failure and ledger catch-up, allocation policies, serverless cold/warm start and MapReduce.
 
 ## Project structure
 
 ```
-distributed-parking/
-├── proto/parking.proto        # gRPC service + message definitions
-├── communication/             # middleware: grpc/, messaging/, p2p/, websocket/
-├── services/
-│   ├── coordinator/           # central coordinator (node registry, heartbeat monitor)
-│   ├── zone/                  # shared zone implementation (in-memory slot state)
-│   ├── zone_a/ zone_b/ zone_c/  # thin per-zone launchers
-├── gateway/                   # FastAPI API gateway (only HTTP-facing service)
-├── frontend/                  # React + Vite client — one page, one App.jsx
-├── tests/                     # integration smoke tests
-├── docs/                      # FA-1 documentation
-├── config.py                  # single source of truth for ports/topology
-└── docker-compose.yml         # Redis only
+proto/parking.proto            gRPC interface (IDL) for coordinators and zones
+distributed/                   Unit 3/4 algorithms, transport-independent and unit-tested
+  clocks.py berkeley.py election.py mutex.py snapshot.py ledger.py
+communication/                 middleware: grpc/ (+ clock interceptors), messaging/, p2p/, websocket/, discovery.py
+services/
+  coordinator/                 replica: election, registry, allocation policies, Berkeley, ledger commit
+  zone/                        slot service + mutex + snapshot + ledger replica
+  faas/  analytics/            serverless runtime, MapReduce engine and jobs
+functions/                     Lambda-style handlers (pricing, receipt)
+gateway/                       stateless FastAPI gateway (REST + WebSocket)
+frontend/                      React dashboard — one tab per topic
+deploy/                        Dockerfiles, nginx.conf, topology.json
+k8s/                           Kubernetes manifests
+tests/                         unit/ and integration tests
+docs/                          FA-1 and FA-2 documentation
+scripts/                       run_local.py, start_all.ps1
+config.py                      topology, timing, env-overridable hosts
 ```
-
-## Setup
-
-```bash
-cd distributed-parking
-python -m venv venv
-venv\Scripts\pip install -r requirements.txt   # Windows
-# source venv/bin/activate && pip install -r requirements.txt   # macOS/Linux
-
-cd frontend
-npm install
-cd ..
-```
-
-## Running it
-
-Start Redis:
-```bash
-docker compose up -d
-```
-
-Then either run [`scripts/start_all.ps1`](scripts/start_all.ps1) (Windows,
-PowerShell — opens one window per service), or start each of these in its own
-terminal, in order:
-
-```bash
-venv\Scripts\python -m services.coordinator.server
-venv\Scripts\python -m services.zone_a.main
-venv\Scripts\python -m services.zone_b.main
-venv\Scripts\python -m services.zone_c.main
-venv\Scripts\python -m uvicorn gateway.main:app --host localhost --port 8000
-```
-
-Then the frontend:
-```bash
-cd frontend
-npm run dev
-```
-
-Open `http://localhost:5173`.
-
-## Running the tests
-
-With the full system already running (see above):
-```bash
-venv\Scripts\python -m pytest tests/ -v
-```
-
-## Architecture at a glance
-
-```
-React Client → API Gateway (HTTP/WS) → Coordinator (gRPC) → Zone A/B/C (gRPC)
-                                                                  ↕ P2P (TCP)
-All services → Redis Streams (parking_events) → Gateway's event bridge → WebSocket → React
-```
-
-## FA-1 features implemented
-
-- **Unit 1:** distributed architecture, design issues, middleware abstraction,
-  model of distributed computation, role of virtualization (Redis only)
-- **Unit 2:** RPC (gRPC), message-oriented communication (Redis Streams),
-  stream-oriented communication (WebSocket), P2P messaging (TCP sockets),
-  names/identifiers/addresses, fault tolerance (heartbeat + failover)
-
-Full mapping: [`docs/FA1_SYLLABUS_MAPPING.md`](docs/FA1_SYLLABUS_MAPPING.md).
-
-Deliberately **not** implemented: Unit 3/4 topics (Lamport/vector clocks, leader
-election, mutual exclusion, deadlock detection, Hadoop, Kubernetes, blockchain),
-distributed multimedia, and WebRTC — see the syllabus mapping doc for why.

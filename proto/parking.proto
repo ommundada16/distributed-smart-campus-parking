@@ -2,28 +2,69 @@ syntax = "proto3";
 
 package parking;
 
-// ---- Coordinator service: called BY zone nodes AND by the API gateway ----
+message Empty {}
+
+// ======================= Coordinator (3 replicas, 1 elected leader) =======================
 service Coordinator {
-  // Called by zone nodes
+  // Called by zone nodes (leader only)
   rpc RegisterNode (RegisterNodeRequest) returns (RegisterNodeResponse);
   rpc Heartbeat (HeartbeatRequest) returns (HeartbeatResponse);
 
-  // Called by the API gateway on behalf of the React client
+  // Called by the API gateway (leader only)
   rpc FindParking (FindParkingRequest) returns (FindParkingResponse);
   rpc ReleaseParking (ReleaseParkingRequest) returns (ReleaseParkingResponse);
   rpc GetSystemStatus (SystemStatusRequest) returns (SystemStatusResponse);
+  rpc SyncClocks (Empty) returns (SyncClocksResponse);            // Berkeley algorithm
+
+  // Bully election + leader beacon (replica <-> replica)
+  rpc Election (ElectionRequest) returns (ElectionResponse);
+  rpc Announce (AnnounceRequest) returns (AnnounceResponse);
+  rpc Beacon (BeaconRequest) returns (BeaconResponse);
+
+  // Any replica answers these
+  rpc WhoIsLeader (Empty) returns (LeaderInfo);
+  rpc GetClockInfo (Empty) returns (ClockInfo);
+  rpc AdjustClock (AdjustClockRequest) returns (ClockInfo);
+  rpc SetFailureMode (SetFailureModeRequest) returns (SetFailureModeResponse);
 }
 
-// ---- Zone service: called BY the coordinator ----
+// ======================= Zone nodes =======================
 service ZoneService {
   rpc GetZoneStatus (ZoneStatusRequest) returns (ZoneStatusResponse);
   rpc GetAvailableSlots (AvailableSlotsRequest) returns (AvailableSlotsResponse);
   rpc ReserveSlot (ReserveSlotRequest) returns (ReserveSlotResponse);
   rpc ReleaseSlot (ReleaseSlotRequest) returns (ReleaseSlotResponse);
-  // Admin/control channel used by the fault-tolerance demo buttons.
   rpc SetFailureMode (SetFailureModeRequest) returns (SetFailureModeResponse);
+
+  // Clocks / Berkeley
+  rpc GetClockInfo (Empty) returns (ClockInfo);
+  rpc AdjustClock (AdjustClockRequest) returns (ClockInfo);
+
+  // Ricart-Agrawala mutual exclusion over the shared overflow lot
+  rpc OverflowBook (OverflowBookRequest) returns (OverflowBookResponse);
+  rpc RequestCS (RaRequest) returns (RaReply);                     // peer -> peer
+
+  // Chandy-Lamport snapshot over the flexible-bay transfers
+  rpc StartTransfer (StartTransferRequest) returns (Ack);          // admin: begin a delayed transfer
+  rpc TransferFlex (TransferRequest) returns (Ack);                // peer -> peer application message
+  rpc Marker (MarkerRequest) returns (Ack);                        // peer -> peer snapshot marker
+  rpc StartSnapshot (StartSnapshotRequest) returns (Ack);
+  rpc GetSnapshot (GetSnapshotRequest) returns (SnapshotResponse);
+
+  // Replicated hash-chained ledger
+  rpc AppendBlock (AppendBlockRequest) returns (AppendBlockResponse);
+  rpc GetBlocks (GetBlocksRequest) returns (GetBlocksResponse);
+  rpc VerifyLedger (Empty) returns (LedgerStatus);
+  rpc TamperLedger (TamperRequest) returns (Ack);
+  rpc RepairLedger (Empty) returns (LedgerStatus);
 }
 
+message Ack {
+  bool success = 1;
+  string message = 2;
+}
+
+// ---------- registration / heartbeat ----------
 message RegisterNodeRequest {
   string node_id = 1;
   string zone_id = 2;
@@ -44,10 +85,11 @@ message HeartbeatRequest {
 message HeartbeatResponse {
   bool acknowledged = 1;
   string server_time = 2;
+  int32 leader_id = 3;
 }
 
-message ZoneStatusRequest {
-}
+// ---------- zone status ----------
+message ZoneStatusRequest {}
 
 message ZoneStatusResponse {
   string zone_id = 1;
@@ -57,10 +99,11 @@ message ZoneStatusResponse {
   int32 occupied_slots = 5;
   int32 reserved_slots = 6;
   string status = 7;
+  int32 flex_bays = 8;
+  int32 ledger_length = 9;
 }
 
-message AvailableSlotsRequest {
-}
+message AvailableSlotsRequest {}
 
 message AvailableSlotsResponse {
   int32 available_count = 1;
@@ -88,7 +131,9 @@ message ReleaseSlotResponse {
   string slot_id = 3;
 }
 
+// ---------- parking (gateway <-> coordinator) ----------
 message FindParkingRequest {
+  string policy = 1;   // first_fit | round_robin | least_loaded (empty = leader default)
 }
 
 message FindParkingResponse {
@@ -98,6 +143,12 @@ message FindParkingResponse {
   string slot_id = 4;
   string reservation_id = 5;
   string message = 6;
+  double price_per_hour = 7;
+  string price_source = 8;
+  int32 ledger_block = 9;
+  string policy = 10;
+  string served_by = 11;
+  int64 lamport = 12;
 }
 
 message ReleaseParkingRequest {
@@ -109,8 +160,7 @@ message ReleaseParkingResponse {
   string message = 2;
 }
 
-message SystemStatusRequest {
-}
+message SystemStatusRequest {}
 
 message NodeInfo {
   string node_id = 1;
@@ -123,10 +173,14 @@ message NodeInfo {
   int32 available_slots = 8;
   int32 occupied_slots = 9;
   int32 reserved_slots = 10;
+  int32 flex_bays = 11;
+  int32 ledger_length = 12;
 }
 
 message SystemStatusResponse {
   repeated NodeInfo nodes = 1;
+  int32 leader_id = 2;
+  int32 term = 3;
 }
 
 message SetFailureModeRequest {
@@ -137,3 +191,135 @@ message SetFailureModeResponse {
   bool success = 1;
   string status = 2;
 }
+
+// ---------- election ----------
+message ElectionRequest { int32 from_id = 1; }
+message ElectionResponse { bool ok = 1; int32 term = 2; }
+message AnnounceRequest { int32 leader_id = 1; int32 term = 2; }
+message AnnounceResponse { bool accepted = 1; }
+message BeaconRequest { int32 leader_id = 1; int32 term = 2; }
+message BeaconResponse { int32 leader_id = 1; int32 term = 2; }
+
+message LeaderInfo {
+  int32 self_id = 1;
+  string self_node = 2;
+  int32 leader_id = 3;
+  int32 term = 4;
+  string state = 5;        // UP | FAILING
+  string host = 6;
+  int32 port = 7;
+}
+
+// ---------- clocks ----------
+message ClockInfo {
+  string node_id = 1;
+  int64 lamport = 2;
+  string vclock_json = 3;
+  double physical_time = 4;
+  double offset = 5;        // this node's skew from true time, seconds
+}
+
+message AdjustClockRequest {
+  double delta = 1;
+  bool absolute = 2;        // true: set offset to `delta` instead of adding
+}
+
+message ClockRow {
+  string node_id = 1;
+  double offset_before = 2;
+  double adjustment = 3;
+  double offset_after = 4;
+  double rtt_ms = 5;
+}
+
+message SyncClocksResponse {
+  bool success = 1;
+  string method = 2;
+  repeated ClockRow rows = 3;
+  string message = 4;
+}
+
+// ---------- mutual exclusion ----------
+message OverflowBookRequest {
+  bool use_mutex = 1;
+  int32 hold_ms = 2;
+  string booking_id = 3;
+}
+
+message OverflowBookResponse {
+  bool success = 1;
+  string message = 2;
+  string node_id = 3;
+  int32 saw_free = 4;
+  int64 lamport = 5;
+  string vclock_json = 6;
+  double entered_at = 7;
+  double exited_at = 8;
+  repeated string trace = 9;
+}
+
+message RaRequest {
+  string resource = 1;
+  int64 ts = 2;
+  string from_node = 3;
+}
+
+message RaReply { bool granted = 1; }
+
+// ---------- snapshot ----------
+message StartTransferRequest {
+  string to_node = 1;
+  int32 amount = 2;
+  int32 delay_ms = 3;
+}
+
+message TransferRequest {
+  string transfer_id = 1;
+  string from_node = 2;
+  int32 amount = 3;
+}
+
+message MarkerRequest {
+  string snapshot_id = 1;
+  string from_node = 2;
+}
+
+message StartSnapshotRequest { string snapshot_id = 1; }
+message GetSnapshotRequest { string snapshot_id = 1; }
+
+message ChannelState {
+  string from_node = 1;
+  repeated int32 in_flight = 2;
+}
+
+message SnapshotResponse {
+  string node_id = 1;
+  bool known = 2;
+  bool complete = 3;
+  int32 recorded_flex = 4;
+  repeated ChannelState channels = 5;
+  repeated string waiting_on = 6;
+}
+
+// ---------- ledger ----------
+message AppendBlockRequest { string block_json = 1; }
+
+message AppendBlockResponse {
+  bool success = 1;
+  string message = 2;
+  int32 length = 3;
+}
+
+message GetBlocksRequest { int32 from_index = 1; }
+message GetBlocksResponse { repeated string blocks_json = 1; }
+
+message LedgerStatus {
+  string node_id = 1;
+  bool valid = 2;
+  int32 bad_index = 3;
+  int32 length = 4;
+  string head_hash = 5;
+  string message = 6;
+}
+
+message TamperRequest { int32 index = 1; }

@@ -1,39 +1,36 @@
 // Thin wrapper around the API Gateway's HTTP + WebSocket endpoints.
-// The frontend never talks to the coordinator or zones directly — the
-// gateway is the single entry point, same as the architecture diagram.
+// The frontend never talks to the coordinators or zones directly — the
+// gateway is the single entry point (behind the Nginx load balancer in Docker).
 
-export async function getSystemStatus() {
-  const res = await fetch('/api/system/status')
-  return res.json()
-}
-
-export async function findParking() {
-  const res = await fetch('/api/parking/find', { method: 'POST' })
-  return res.json()
-}
-
-export async function releaseParking(reservationId) {
-  const res = await fetch('/api/parking/release', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ reservation_id: reservationId }),
+export async function call(path, { method = 'GET', body } = {}) {
+  const res = await fetch(path, {
+    method,
+    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
   })
-  return res.json()
+  const data = await res.json()
+  return {
+    data,
+    servedBy: res.headers.get('X-Served-By'),
+    cache: res.headers.get('X-Cache-Status'),
+    upstream: res.headers.get('X-Upstream'),
+  }
 }
 
-export async function getRecentEvents(count = 20) {
-  const res = await fetch(`/api/events/recent?count=${count}`)
-  return res.json()
-}
+export const get = (path) => call(path).then((r) => r.data)
+export const post = (path, body) => call(path, { method: 'POST', body }).then((r) => r.data)
 
-export async function setZoneFailure(zoneKey, simulateFailure) {
-  const res = await fetch(`/api/admin/zone/${zoneKey}/failure`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ simulate_failure: simulateFailure }),
-  })
-  return res.json()
-}
+// ---- FA-1 calls (kept) ----
+export const getSystemStatus = () => get('/api/system/status')
+export const findParking = (policy = '') => post(`/api/parking/find${policy ? `?policy=${policy}` : ''}`)
+export const releaseParking = (reservationId) => post('/api/parking/release', { reservation_id: reservationId })
+export const getRecentEvents = (count = 40) => get(`/api/events/recent?count=${count}`)
+export const setZoneFailure = (zoneKey, simulateFailure) =>
+  post(`/api/admin/zone/${zoneKey}/failure`, { simulate_failure: simulateFailure })
+
+// ---- FA-2 calls ----
+export const setCoordinatorFailure = (id, simulateFailure) =>
+  post(`/api/admin/coordinator/${id}/failure`, { simulate_failure: simulateFailure })
 
 export function connectEventStream(onEvent) {
   const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'

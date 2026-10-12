@@ -5,7 +5,7 @@ import warnings
 
 from communication.grpc import parking_pb2 as parking__pb2
 
-GRPC_GENERATED_VERSION = '1.68.1'
+GRPC_GENERATED_VERSION = '1.84.0'
 GRPC_VERSION = grpc.__version__
 _version_not_supported = False
 
@@ -18,15 +18,15 @@ except ImportError:
 if _version_not_supported:
     raise RuntimeError(
         f'The grpc package installed is at version {GRPC_VERSION},'
-        + f' but the generated code in parking_pb2_grpc.py depends on'
+        + ' but the generated code in parking_pb2_grpc.py depends on'
         + f' grpcio>={GRPC_GENERATED_VERSION}.'
         + f' Please upgrade your grpc module to grpcio>={GRPC_GENERATED_VERSION}'
         + f' or downgrade your generated code using grpcio-tools<={GRPC_VERSION}.'
     )
 
 
-class CoordinatorStub(object):
-    """---- Coordinator service: called BY zone nodes AND by the API gateway ----
+class CoordinatorStub:
+    """======================= Coordinator (3 replicas, 1 elected leader) =======================
     """
 
     def __init__(self, channel):
@@ -60,14 +60,54 @@ class CoordinatorStub(object):
                 request_serializer=parking__pb2.SystemStatusRequest.SerializeToString,
                 response_deserializer=parking__pb2.SystemStatusResponse.FromString,
                 _registered_method=True)
+        self.SyncClocks = channel.unary_unary(
+                '/parking.Coordinator/SyncClocks',
+                request_serializer=parking__pb2.Empty.SerializeToString,
+                response_deserializer=parking__pb2.SyncClocksResponse.FromString,
+                _registered_method=True)
+        self.Election = channel.unary_unary(
+                '/parking.Coordinator/Election',
+                request_serializer=parking__pb2.ElectionRequest.SerializeToString,
+                response_deserializer=parking__pb2.ElectionResponse.FromString,
+                _registered_method=True)
+        self.Announce = channel.unary_unary(
+                '/parking.Coordinator/Announce',
+                request_serializer=parking__pb2.AnnounceRequest.SerializeToString,
+                response_deserializer=parking__pb2.AnnounceResponse.FromString,
+                _registered_method=True)
+        self.Beacon = channel.unary_unary(
+                '/parking.Coordinator/Beacon',
+                request_serializer=parking__pb2.BeaconRequest.SerializeToString,
+                response_deserializer=parking__pb2.BeaconResponse.FromString,
+                _registered_method=True)
+        self.WhoIsLeader = channel.unary_unary(
+                '/parking.Coordinator/WhoIsLeader',
+                request_serializer=parking__pb2.Empty.SerializeToString,
+                response_deserializer=parking__pb2.LeaderInfo.FromString,
+                _registered_method=True)
+        self.GetClockInfo = channel.unary_unary(
+                '/parking.Coordinator/GetClockInfo',
+                request_serializer=parking__pb2.Empty.SerializeToString,
+                response_deserializer=parking__pb2.ClockInfo.FromString,
+                _registered_method=True)
+        self.AdjustClock = channel.unary_unary(
+                '/parking.Coordinator/AdjustClock',
+                request_serializer=parking__pb2.AdjustClockRequest.SerializeToString,
+                response_deserializer=parking__pb2.ClockInfo.FromString,
+                _registered_method=True)
+        self.SetFailureMode = channel.unary_unary(
+                '/parking.Coordinator/SetFailureMode',
+                request_serializer=parking__pb2.SetFailureModeRequest.SerializeToString,
+                response_deserializer=parking__pb2.SetFailureModeResponse.FromString,
+                _registered_method=True)
 
 
-class CoordinatorServicer(object):
-    """---- Coordinator service: called BY zone nodes AND by the API gateway ----
+class CoordinatorServicer:
+    """======================= Coordinator (3 replicas, 1 elected leader) =======================
     """
 
     def RegisterNode(self, request, context):
-        """Called by zone nodes
+        """Called by zone nodes (leader only)
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -80,7 +120,7 @@ class CoordinatorServicer(object):
         raise NotImplementedError('Method not implemented!')
 
     def FindParking(self, request, context):
-        """Called by the API gateway on behalf of the React client
+        """Called by the API gateway (leader only)
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -93,6 +133,57 @@ class CoordinatorServicer(object):
         raise NotImplementedError('Method not implemented!')
 
     def GetSystemStatus(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def SyncClocks(self, request, context):
+        """Berkeley algorithm
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def Election(self, request, context):
+        """Bully election + leader beacon (replica <-> replica)
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def Announce(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def Beacon(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def WhoIsLeader(self, request, context):
+        """Any replica answers these
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetClockInfo(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def AdjustClock(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def SetFailureMode(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -126,6 +217,46 @@ def add_CoordinatorServicer_to_server(servicer, server):
                     request_deserializer=parking__pb2.SystemStatusRequest.FromString,
                     response_serializer=parking__pb2.SystemStatusResponse.SerializeToString,
             ),
+            'SyncClocks': grpc.unary_unary_rpc_method_handler(
+                    servicer.SyncClocks,
+                    request_deserializer=parking__pb2.Empty.FromString,
+                    response_serializer=parking__pb2.SyncClocksResponse.SerializeToString,
+            ),
+            'Election': grpc.unary_unary_rpc_method_handler(
+                    servicer.Election,
+                    request_deserializer=parking__pb2.ElectionRequest.FromString,
+                    response_serializer=parking__pb2.ElectionResponse.SerializeToString,
+            ),
+            'Announce': grpc.unary_unary_rpc_method_handler(
+                    servicer.Announce,
+                    request_deserializer=parking__pb2.AnnounceRequest.FromString,
+                    response_serializer=parking__pb2.AnnounceResponse.SerializeToString,
+            ),
+            'Beacon': grpc.unary_unary_rpc_method_handler(
+                    servicer.Beacon,
+                    request_deserializer=parking__pb2.BeaconRequest.FromString,
+                    response_serializer=parking__pb2.BeaconResponse.SerializeToString,
+            ),
+            'WhoIsLeader': grpc.unary_unary_rpc_method_handler(
+                    servicer.WhoIsLeader,
+                    request_deserializer=parking__pb2.Empty.FromString,
+                    response_serializer=parking__pb2.LeaderInfo.SerializeToString,
+            ),
+            'GetClockInfo': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetClockInfo,
+                    request_deserializer=parking__pb2.Empty.FromString,
+                    response_serializer=parking__pb2.ClockInfo.SerializeToString,
+            ),
+            'AdjustClock': grpc.unary_unary_rpc_method_handler(
+                    servicer.AdjustClock,
+                    request_deserializer=parking__pb2.AdjustClockRequest.FromString,
+                    response_serializer=parking__pb2.ClockInfo.SerializeToString,
+            ),
+            'SetFailureMode': grpc.unary_unary_rpc_method_handler(
+                    servicer.SetFailureMode,
+                    request_deserializer=parking__pb2.SetFailureModeRequest.FromString,
+                    response_serializer=parking__pb2.SetFailureModeResponse.SerializeToString,
+            ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
             'parking.Coordinator', rpc_method_handlers)
@@ -134,8 +265,8 @@ def add_CoordinatorServicer_to_server(servicer, server):
 
 
  # This class is part of an EXPERIMENTAL API.
-class Coordinator(object):
-    """---- Coordinator service: called BY zone nodes AND by the API gateway ----
+class Coordinator:
+    """======================= Coordinator (3 replicas, 1 elected leader) =======================
     """
 
     @staticmethod
@@ -273,9 +404,225 @@ class Coordinator(object):
             metadata,
             _registered_method=True)
 
+    @staticmethod
+    def SyncClocks(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/parking.Coordinator/SyncClocks',
+            parking__pb2.Empty.SerializeToString,
+            parking__pb2.SyncClocksResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
 
-class ZoneServiceStub(object):
-    """---- Zone service: called BY the coordinator ----
+    @staticmethod
+    def Election(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/parking.Coordinator/Election',
+            parking__pb2.ElectionRequest.SerializeToString,
+            parking__pb2.ElectionResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def Announce(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/parking.Coordinator/Announce',
+            parking__pb2.AnnounceRequest.SerializeToString,
+            parking__pb2.AnnounceResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def Beacon(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/parking.Coordinator/Beacon',
+            parking__pb2.BeaconRequest.SerializeToString,
+            parking__pb2.BeaconResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def WhoIsLeader(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/parking.Coordinator/WhoIsLeader',
+            parking__pb2.Empty.SerializeToString,
+            parking__pb2.LeaderInfo.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetClockInfo(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/parking.Coordinator/GetClockInfo',
+            parking__pb2.Empty.SerializeToString,
+            parking__pb2.ClockInfo.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def AdjustClock(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/parking.Coordinator/AdjustClock',
+            parking__pb2.AdjustClockRequest.SerializeToString,
+            parking__pb2.ClockInfo.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SetFailureMode(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/parking.Coordinator/SetFailureMode',
+            parking__pb2.SetFailureModeRequest.SerializeToString,
+            parking__pb2.SetFailureModeResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+
+class ZoneServiceStub:
+    """======================= Zone nodes =======================
     """
 
     def __init__(self, channel):
@@ -309,10 +656,80 @@ class ZoneServiceStub(object):
                 request_serializer=parking__pb2.SetFailureModeRequest.SerializeToString,
                 response_deserializer=parking__pb2.SetFailureModeResponse.FromString,
                 _registered_method=True)
+        self.GetClockInfo = channel.unary_unary(
+                '/parking.ZoneService/GetClockInfo',
+                request_serializer=parking__pb2.Empty.SerializeToString,
+                response_deserializer=parking__pb2.ClockInfo.FromString,
+                _registered_method=True)
+        self.AdjustClock = channel.unary_unary(
+                '/parking.ZoneService/AdjustClock',
+                request_serializer=parking__pb2.AdjustClockRequest.SerializeToString,
+                response_deserializer=parking__pb2.ClockInfo.FromString,
+                _registered_method=True)
+        self.OverflowBook = channel.unary_unary(
+                '/parking.ZoneService/OverflowBook',
+                request_serializer=parking__pb2.OverflowBookRequest.SerializeToString,
+                response_deserializer=parking__pb2.OverflowBookResponse.FromString,
+                _registered_method=True)
+        self.RequestCS = channel.unary_unary(
+                '/parking.ZoneService/RequestCS',
+                request_serializer=parking__pb2.RaRequest.SerializeToString,
+                response_deserializer=parking__pb2.RaReply.FromString,
+                _registered_method=True)
+        self.StartTransfer = channel.unary_unary(
+                '/parking.ZoneService/StartTransfer',
+                request_serializer=parking__pb2.StartTransferRequest.SerializeToString,
+                response_deserializer=parking__pb2.Ack.FromString,
+                _registered_method=True)
+        self.TransferFlex = channel.unary_unary(
+                '/parking.ZoneService/TransferFlex',
+                request_serializer=parking__pb2.TransferRequest.SerializeToString,
+                response_deserializer=parking__pb2.Ack.FromString,
+                _registered_method=True)
+        self.Marker = channel.unary_unary(
+                '/parking.ZoneService/Marker',
+                request_serializer=parking__pb2.MarkerRequest.SerializeToString,
+                response_deserializer=parking__pb2.Ack.FromString,
+                _registered_method=True)
+        self.StartSnapshot = channel.unary_unary(
+                '/parking.ZoneService/StartSnapshot',
+                request_serializer=parking__pb2.StartSnapshotRequest.SerializeToString,
+                response_deserializer=parking__pb2.Ack.FromString,
+                _registered_method=True)
+        self.GetSnapshot = channel.unary_unary(
+                '/parking.ZoneService/GetSnapshot',
+                request_serializer=parking__pb2.GetSnapshotRequest.SerializeToString,
+                response_deserializer=parking__pb2.SnapshotResponse.FromString,
+                _registered_method=True)
+        self.AppendBlock = channel.unary_unary(
+                '/parking.ZoneService/AppendBlock',
+                request_serializer=parking__pb2.AppendBlockRequest.SerializeToString,
+                response_deserializer=parking__pb2.AppendBlockResponse.FromString,
+                _registered_method=True)
+        self.GetBlocks = channel.unary_unary(
+                '/parking.ZoneService/GetBlocks',
+                request_serializer=parking__pb2.GetBlocksRequest.SerializeToString,
+                response_deserializer=parking__pb2.GetBlocksResponse.FromString,
+                _registered_method=True)
+        self.VerifyLedger = channel.unary_unary(
+                '/parking.ZoneService/VerifyLedger',
+                request_serializer=parking__pb2.Empty.SerializeToString,
+                response_deserializer=parking__pb2.LedgerStatus.FromString,
+                _registered_method=True)
+        self.TamperLedger = channel.unary_unary(
+                '/parking.ZoneService/TamperLedger',
+                request_serializer=parking__pb2.TamperRequest.SerializeToString,
+                response_deserializer=parking__pb2.Ack.FromString,
+                _registered_method=True)
+        self.RepairLedger = channel.unary_unary(
+                '/parking.ZoneService/RepairLedger',
+                request_serializer=parking__pb2.Empty.SerializeToString,
+                response_deserializer=parking__pb2.LedgerStatus.FromString,
+                _registered_method=True)
 
 
-class ZoneServiceServicer(object):
-    """---- Zone service: called BY the coordinator ----
+class ZoneServiceServicer:
+    """======================= Zone nodes =======================
     """
 
     def GetZoneStatus(self, request, context):
@@ -340,8 +757,99 @@ class ZoneServiceServicer(object):
         raise NotImplementedError('Method not implemented!')
 
     def SetFailureMode(self, request, context):
-        """Admin/control channel used by the fault-tolerance demo buttons.
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetClockInfo(self, request, context):
+        """Clocks / Berkeley
         """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def AdjustClock(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def OverflowBook(self, request, context):
+        """Ricart-Agrawala mutual exclusion over the shared overflow lot
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def RequestCS(self, request, context):
+        """peer -> peer
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def StartTransfer(self, request, context):
+        """Chandy-Lamport snapshot over the flexible-bay transfers
+        admin: begin a delayed transfer
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def TransferFlex(self, request, context):
+        """peer -> peer application message
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def Marker(self, request, context):
+        """peer -> peer snapshot marker
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def StartSnapshot(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetSnapshot(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def AppendBlock(self, request, context):
+        """Replicated hash-chained ledger
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetBlocks(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def VerifyLedger(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def TamperLedger(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def RepairLedger(self, request, context):
+        """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
@@ -374,6 +882,76 @@ def add_ZoneServiceServicer_to_server(servicer, server):
                     request_deserializer=parking__pb2.SetFailureModeRequest.FromString,
                     response_serializer=parking__pb2.SetFailureModeResponse.SerializeToString,
             ),
+            'GetClockInfo': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetClockInfo,
+                    request_deserializer=parking__pb2.Empty.FromString,
+                    response_serializer=parking__pb2.ClockInfo.SerializeToString,
+            ),
+            'AdjustClock': grpc.unary_unary_rpc_method_handler(
+                    servicer.AdjustClock,
+                    request_deserializer=parking__pb2.AdjustClockRequest.FromString,
+                    response_serializer=parking__pb2.ClockInfo.SerializeToString,
+            ),
+            'OverflowBook': grpc.unary_unary_rpc_method_handler(
+                    servicer.OverflowBook,
+                    request_deserializer=parking__pb2.OverflowBookRequest.FromString,
+                    response_serializer=parking__pb2.OverflowBookResponse.SerializeToString,
+            ),
+            'RequestCS': grpc.unary_unary_rpc_method_handler(
+                    servicer.RequestCS,
+                    request_deserializer=parking__pb2.RaRequest.FromString,
+                    response_serializer=parking__pb2.RaReply.SerializeToString,
+            ),
+            'StartTransfer': grpc.unary_unary_rpc_method_handler(
+                    servicer.StartTransfer,
+                    request_deserializer=parking__pb2.StartTransferRequest.FromString,
+                    response_serializer=parking__pb2.Ack.SerializeToString,
+            ),
+            'TransferFlex': grpc.unary_unary_rpc_method_handler(
+                    servicer.TransferFlex,
+                    request_deserializer=parking__pb2.TransferRequest.FromString,
+                    response_serializer=parking__pb2.Ack.SerializeToString,
+            ),
+            'Marker': grpc.unary_unary_rpc_method_handler(
+                    servicer.Marker,
+                    request_deserializer=parking__pb2.MarkerRequest.FromString,
+                    response_serializer=parking__pb2.Ack.SerializeToString,
+            ),
+            'StartSnapshot': grpc.unary_unary_rpc_method_handler(
+                    servicer.StartSnapshot,
+                    request_deserializer=parking__pb2.StartSnapshotRequest.FromString,
+                    response_serializer=parking__pb2.Ack.SerializeToString,
+            ),
+            'GetSnapshot': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetSnapshot,
+                    request_deserializer=parking__pb2.GetSnapshotRequest.FromString,
+                    response_serializer=parking__pb2.SnapshotResponse.SerializeToString,
+            ),
+            'AppendBlock': grpc.unary_unary_rpc_method_handler(
+                    servicer.AppendBlock,
+                    request_deserializer=parking__pb2.AppendBlockRequest.FromString,
+                    response_serializer=parking__pb2.AppendBlockResponse.SerializeToString,
+            ),
+            'GetBlocks': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetBlocks,
+                    request_deserializer=parking__pb2.GetBlocksRequest.FromString,
+                    response_serializer=parking__pb2.GetBlocksResponse.SerializeToString,
+            ),
+            'VerifyLedger': grpc.unary_unary_rpc_method_handler(
+                    servicer.VerifyLedger,
+                    request_deserializer=parking__pb2.Empty.FromString,
+                    response_serializer=parking__pb2.LedgerStatus.SerializeToString,
+            ),
+            'TamperLedger': grpc.unary_unary_rpc_method_handler(
+                    servicer.TamperLedger,
+                    request_deserializer=parking__pb2.TamperRequest.FromString,
+                    response_serializer=parking__pb2.Ack.SerializeToString,
+            ),
+            'RepairLedger': grpc.unary_unary_rpc_method_handler(
+                    servicer.RepairLedger,
+                    request_deserializer=parking__pb2.Empty.FromString,
+                    response_serializer=parking__pb2.LedgerStatus.SerializeToString,
+            ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
             'parking.ZoneService', rpc_method_handlers)
@@ -382,8 +960,8 @@ def add_ZoneServiceServicer_to_server(servicer, server):
 
 
  # This class is part of an EXPERIMENTAL API.
-class ZoneService(object):
-    """---- Zone service: called BY the coordinator ----
+class ZoneService:
+    """======================= Zone nodes =======================
     """
 
     @staticmethod
@@ -511,6 +1089,384 @@ class ZoneService(object):
             '/parking.ZoneService/SetFailureMode',
             parking__pb2.SetFailureModeRequest.SerializeToString,
             parking__pb2.SetFailureModeResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetClockInfo(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/parking.ZoneService/GetClockInfo',
+            parking__pb2.Empty.SerializeToString,
+            parking__pb2.ClockInfo.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def AdjustClock(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/parking.ZoneService/AdjustClock',
+            parking__pb2.AdjustClockRequest.SerializeToString,
+            parking__pb2.ClockInfo.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def OverflowBook(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/parking.ZoneService/OverflowBook',
+            parking__pb2.OverflowBookRequest.SerializeToString,
+            parking__pb2.OverflowBookResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def RequestCS(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/parking.ZoneService/RequestCS',
+            parking__pb2.RaRequest.SerializeToString,
+            parking__pb2.RaReply.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def StartTransfer(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/parking.ZoneService/StartTransfer',
+            parking__pb2.StartTransferRequest.SerializeToString,
+            parking__pb2.Ack.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def TransferFlex(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/parking.ZoneService/TransferFlex',
+            parking__pb2.TransferRequest.SerializeToString,
+            parking__pb2.Ack.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def Marker(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/parking.ZoneService/Marker',
+            parking__pb2.MarkerRequest.SerializeToString,
+            parking__pb2.Ack.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def StartSnapshot(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/parking.ZoneService/StartSnapshot',
+            parking__pb2.StartSnapshotRequest.SerializeToString,
+            parking__pb2.Ack.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetSnapshot(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/parking.ZoneService/GetSnapshot',
+            parking__pb2.GetSnapshotRequest.SerializeToString,
+            parking__pb2.SnapshotResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def AppendBlock(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/parking.ZoneService/AppendBlock',
+            parking__pb2.AppendBlockRequest.SerializeToString,
+            parking__pb2.AppendBlockResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetBlocks(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/parking.ZoneService/GetBlocks',
+            parking__pb2.GetBlocksRequest.SerializeToString,
+            parking__pb2.GetBlocksResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def VerifyLedger(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/parking.ZoneService/VerifyLedger',
+            parking__pb2.Empty.SerializeToString,
+            parking__pb2.LedgerStatus.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def TamperLedger(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/parking.ZoneService/TamperLedger',
+            parking__pb2.TamperRequest.SerializeToString,
+            parking__pb2.Ack.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def RepairLedger(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/parking.ZoneService/RepairLedger',
+            parking__pb2.Empty.SerializeToString,
+            parking__pb2.LedgerStatus.FromString,
             options,
             channel_credentials,
             insecure,

@@ -1,0 +1,32 @@
+# Kubernetes deployment of the FA-2 system (Unit 4: Kubernetes).
+#
+#   docker build -t campus-parking/backend:fa2 -f deploy/Dockerfile.python .
+#   docker build -t campus-parking/web:fa2     -f deploy/Dockerfile.web .
+#   # kind:     kind load docker-image campus-parking/backend:fa2 campus-parking/web:fa2
+#   # minikube: minikube image load campus-parking/backend:fa2 && minikube image load campus-parking/web:fa2
+#   kubectl apply -f k8s/
+#   kubectl -n campus-parking get pods -o wide
+#   open http://localhost:30080   (NodePort; with kind use `kubectl -n campus-parking port-forward svc/web 8080:80`)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: campus-parking
+---
+# Service discovery for the application: the same environment variables docker-compose sets,
+# pointing at Kubernetes Service DNS names instead of container hostnames.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: campus-config
+  namespace: campus-parking
+data:
+  REDIS_HOST: redis
+  BIND_HOST: 0.0.0.0
+  COORD_1_HOST: coordinator-0.coordinator
+  COORD_2_HOST: coordinator-1.coordinator
+  COORD_3_HOST: coordinator-2.coordinator
+  ZONE_A_HOST: zone-a
+  ZONE_B_HOST: zone-b
+  ZONE_C_HOST: zone-c
+  FAAS_URL: http://faas:9000
+  ANALYTICS_URL: http://analytics:9100

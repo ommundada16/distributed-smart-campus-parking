@@ -1,0 +1,54 @@
+# Three coordinator replicas as a StatefulSet. A StatefulSet gives every pod a *stable identity*
+# (coordinator-0, -1, -2) and a stable DNS name through the headless Service - exactly what the
+# Bully election needs: the pod ordinal becomes the election priority (COORD_ID = ordinal + 1).
+apiVersion: v1
+kind: Service
+metadata:
+  name: coordinator
+  namespace: campus-parking
+spec:
+  clusterIP: None            # headless: DNS returns the individual pod addresses
+  selector: { app: coordinator }
+  ports:
+    - { name: grpc-1, port: 5101 }
+    - { name: grpc-2, port: 5102 }
+    - { name: grpc-3, port: 5103 }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: coordinator
+  namespace: campus-parking
+spec:
+  serviceName: coordinator
+  replicas: 3
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels: { app: coordinator }
+  template:
+    metadata:
+      labels: { app: coordinator }
+    spec:
+      containers:
+        - name: coordinator
+          image: campus-parking/backend:fa2
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - 'ORD="${HOSTNAME##*-}"; export COORD_ID=$((ORD + 1)); exec python -m services.coordinator.server --id "$COORD_ID"'
+          envFrom:
+            - configMapRef: { name: campus-config }
+          ports:
+            - containerPort: 5101
+            - containerPort: 5102
+            - containerPort: 5103
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: 500m, memory: 256Mi }
+          # A coordinator is healthy when its gRPC port accepts connections. (Which replica is the
+          # *leader* is an application-level fact, deliberately not part of readiness: followers must stay Ready.)
+          readinessProbe:
+            exec:
+              command: ["/bin/sh", "-c", "python -c \"import socket,os; socket.create_connection(('localhost', 5100+int(os.environ['HOSTNAME'].rsplit('-',1)[1])+1), 2)\""]
+            initialDelaySeconds: 3
+            periodSeconds: 5

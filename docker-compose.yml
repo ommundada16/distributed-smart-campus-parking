@@ -1,6 +1,167 @@
+# FA-2 deployment: every node is its own container with its own hostname and CPU/memory limit.
+#
+#   docker compose up --build -d        # then open http://localhost:8080
+#   docker compose ps                   # the server inventory
+#   docker stats                        # live resource usage vs the limits below
+#
+# Local development without containers (only Redis here):  python scripts/run_local.py
+
+x-backend: &backend
+  build:
+    context: .
+    dockerfile: deploy/Dockerfile.python
+  image: campus-parking/backend:fa2
+  restart: unless-stopped
+  depends_on:
+    redis:
+      condition: service_healthy
+
+x-env: &env
+  REDIS_HOST: redis
+  BIND_HOST: 0.0.0.0
+  COORD_1_HOST: coord-1
+  COORD_2_HOST: coord-2
+  COORD_3_HOST: coord-3
+  ZONE_A_HOST: zone-a
+  ZONE_B_HOST: zone-b
+  ZONE_C_HOST: zone-c
+  FAAS_URL: http://faas:9000
+  ANALYTICS_URL: http://analytics:9100
+
 services:
   redis:
     image: redis:7-alpine
-    container_name: parking_redis
+    hostname: redis
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 2s
+      retries: 10
+    deploy:
+      resources:
+        limits: { cpus: "0.50", memory: 128M }
+
+  # ---- 3 coordinator replicas: Bully election picks the leader (highest live id) ----
+  coord-1:
+    <<: *backend
+    hostname: coord-1
+    command: ["python", "-m", "services.coordinator.server", "--id", "1"]
+    environment: *env
+    deploy:
+      resources:
+        limits: { cpus: "0.50", memory: 256M }
+  coord-2:
+    <<: *backend
+    hostname: coord-2
+    command: ["python", "-m", "services.coordinator.server", "--id", "2"]
+    environment: *env
+    deploy:
+      resources:
+        limits: { cpus: "0.50", memory: 256M }
+  coord-3:
+    <<: *backend
+    hostname: coord-3
+    command: ["python", "-m", "services.coordinator.server", "--id", "3"]
+    environment: *env
+    deploy:
+      resources:
+        limits: { cpus: "0.50", memory: 256M }
+
+  # ---- 3 parking zones ----
+  zone-a:
+    <<: *backend
+    hostname: zone-a
+    command: ["python", "-m", "services.zone.zone_service", "--zone", "A"]
+    environment: *env
+    deploy:
+      resources:
+        limits: { cpus: "0.25", memory: 128M }
+  zone-b:
+    <<: *backend
+    hostname: zone-b
+    command: ["python", "-m", "services.zone.zone_service", "--zone", "B"]
+    environment: *env
+    deploy:
+      resources:
+        limits: { cpus: "0.25", memory: 128M }
+  zone-c:
+    <<: *backend
+    hostname: zone-c
+    command: ["python", "-m", "services.zone.zone_service", "--zone", "C"]
+    environment: *env
+    deploy:
+      resources:
+        limits: { cpus: "0.25", memory: 128M }
+
+  # ---- serverless platform + batch analytics ----
+  faas:
+    <<: *backend
+    hostname: faas
+    command: ["python", "-m", "uvicorn", "services.faas.runtime:app", "--host", "0.0.0.0", "--port", "9000"]
+    environment: *env
+    deploy:
+      resources:
+        limits: { cpus: "0.25", memory: 128M }
+  analytics:
+    <<: *backend
+    hostname: analytics
+    command: ["python", "-m", "uvicorn", "services.analytics.service:app", "--host", "0.0.0.0", "--port", "9100"]
+    environment: *env
+    deploy:
+      resources:
+        limits: { cpus: "1.00", memory: 512M }
+
+  # ---- two stateless API gateway replicas (behind Nginx) ----
+  gateway-1:
+    <<: *backend
+    hostname: gateway-1
+    command: ["python", "-m", "gateway.main"]
+    environment:
+      <<: *env
+      GATEWAY_NAME: gateway-1
+      GATEWAY_PORT: "8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    deploy:
+      resources:
+        limits: { cpus: "0.50", memory: 256M }
+  gateway-2:
+    <<: *backend
+    hostname: gateway-2
+    command: ["python", "-m", "gateway.main"]
+    environment:
+      <<: *env
+      GATEWAY_NAME: gateway-2
+      GATEWAY_PORT: "8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    deploy:
+      resources:
+        limits: { cpus: "0.50", memory: 256M }
+
+  # ---- edge: Nginx load balancer + edge cache + React UI ----
+  web:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.web
+    image: campus-parking/web:fa2
+    hostname: web
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      gateway-1:
+        condition: service_healthy
+      gateway-2:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits: { cpus: "0.50", memory: 128M }
