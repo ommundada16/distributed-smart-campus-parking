@@ -175,7 +175,7 @@ function MapReduce() {
         </select>
         <select value={source} onChange={(e) => setSource(e.target.value)}>
           <option value="synthetic">Synthetic demand</option>
-          <option value="ledger">Real ledger history</option>
+          <option value="events">Real booking events</option>
         </select>
         {source === 'synthetic' && (
           <select value={n} onChange={(e) => setN(+e.target.value)}>

@@ -61,17 +61,15 @@ def test_zones_registered_with_leader():
     assert status["leader_id"] in config.COORDINATORS
 
 
-def test_reserve_and_release_roundtrip_commits_ledger_blocks():
-    before = client.get("/api/ledger").json()["replicas"][0]["length"]
+def test_reserve_and_release_roundtrip():
     found = client.post("/api/parking/find").json()
     assert found["success"], found
     assert found["reservation_id"].startswith("RES-")
-    assert found["ledger_block"] > 0 and found["price_per_hour"] > 0
+    assert found["price_per_hour"] > 0 and found["receipt"]
     released = client.post("/api/parking/release", json={"reservation_id": found["reservation_id"]}).json()
     assert released["success"]
-    ledger = client.get("/api/ledger").json()
-    assert ledger["consistent"]
-    assert ledger["replicas"][0]["length"] == before + 2  # one RESERVE + one RELEASE block
+    again = client.post("/api/parking/release", json={"reservation_id": found["reservation_id"]}).json()
+    assert not again["success"]  # releasing twice is refused
 
 
 def test_p2p_capacity_query():
@@ -115,7 +113,7 @@ def test_full_zones_fall_back_to_overflow_lot():
             reserved.append(r["reservation_id"])
             if r["zone_id"] == "OVERFLOW":
                 break
-        assert r["zone_id"] == "OVERFLOW" and r["reservation_id"].startswith("RES-OVF-") and r["ledger_block"] > 0
+        assert r["zone_id"] == "OVERFLOW" and r["reservation_id"].startswith("RES-OVF-")
 
         lot = client.get("/api/overflow").json()
         assert lot["free"] == config.OVERFLOW_CAPACITY - 1 and r["reservation_id"] in lot["bookings"]
@@ -152,7 +150,7 @@ def test_leader_failover_and_recovery():
 
 # -------------------------------------------------------- Unit 2/3: zone fault tolerance
 
-def test_zone_failure_is_detected_and_ledger_catches_up():
+def test_zone_failure_is_detected_and_service_continues():
     client.post("/api/admin/zone/C/failure", json={"simulate_failure": True})
     try:
         offline = _wait(lambda: next((z for z in client.get("/api/system/status").json()["zones"]
@@ -160,29 +158,14 @@ def test_zone_failure_is_detected_and_ledger_catches_up():
                         timeout=config.HEARTBEAT_TIMEOUT_SEC + 8)
         assert offline, "leader did not mark ZONE_C offline"
 
-        found = client.post("/api/parking/find").json()  # committed by a 2-of-3 majority while C is down
+        found = client.post("/api/parking/find").json()  # the other zones keep serving
         assert found["success"] and found["zone_id"] != "PARKING_C"
         client.post("/api/parking/release", json={"reservation_id": found["reservation_id"]})
     finally:
         client.post("/api/admin/zone/C/failure", json={"simulate_failure": False})
 
-    assert _wait(lambda: client.get("/api/ledger").json()["consistent"], timeout=20), "recovered zone never caught up"
     assert _wait(lambda: next((z for z in client.get("/api/system/status").json()["zones"]
                                if z["node_id"] == "ZONE_C" and z["status"] == "ONLINE"), None), timeout=15)
-
-
-# --------------------------------------------------------------- Unit 4: ledger
-
-def test_tampered_ledger_replica_is_detected_and_repaired():
-    client.post("/api/parking/release", json={"reservation_id": client.post("/api/parking/find").json()["reservation_id"]})
-    assert client.post("/api/ledger/tamper", params={"zone": "B"}).json()["success"]
-    view = client.get("/api/ledger").json()
-    bad = next(r for r in view["replicas"] if r["node_id"] == "ZONE_B")
-    assert not bad["valid"] and not view["consistent"]
-    assert all(r["valid"] for r in view["replicas"] if r["node_id"] != "ZONE_B")
-
-    assert client.post("/api/ledger/repair", params={"zone": "B"}).json()["success"]
-    assert client.get("/api/ledger").json()["consistent"]
 
 
 # ---------------------------------------------------------------- load balancing

@@ -4,7 +4,6 @@ One shared implementation, launched three times as three independent processes
 (Zone A / B / C). Besides the FA-1 slot service it now takes part in:
 
   * Ricart-Agrawala mutual exclusion over the shared overflow lot   (Unit 3)
-  * a replicated, hash-chained booking ledger                        (Unit 4)
 
 Run standalone:
     python -m services.zone.zone_service --zone A
@@ -28,7 +27,6 @@ from communication.grpc.grpc_client import make_server, replica_stub, zone_stub_
 from communication.messaging.message_bus import get_redis_client, publish_event
 from communication.p2p.p2p_client import send_p2p_message, start_p2p_server
 from distributed import clocks
-from distributed.ledger import Block, Ledger
 from distributed.mutex import RicartAgrawala
 
 
@@ -91,10 +89,6 @@ class ZoneRuntime:
         self.store = SlotStore(zone_key, self.total_slots, cfg.get("occupied_ratio", 0.25))
         self.locator = LeaderLocator()
 
-        # ---- ledger replica
-        self.ledger = Ledger()
-        self.ledger_sync_lock = threading.Lock()
-
         # ---- mutual exclusion over the shared overflow lot
         self.trace_lock = threading.Lock()
         self.trace_log: list[tuple[float, str]] = []
@@ -126,28 +120,6 @@ class ZoneRuntime:
         stub = zone_stub_for(config.ZONE_BY_NODE[peer_node])
         return stub.RequestCS(parking_pb2.RaRequest(resource="OVERFLOW", ts=ts, from_node=from_id), timeout=30).granted
 
-    # ---- ledger sync ----------------------------------------------------
-
-    def sync_ledger(self) -> int:
-        """Catch up from peer replicas. Returns number of blocks adopted."""
-        adopted = 0
-        with self.ledger_sync_lock:
-            for key in config.ZONES:
-                if key == self.zone_key:
-                    continue
-                try:
-                    resp = zone_stub_for(key).GetBlocks(parking_pb2.GetBlocksRequest(from_index=len(self.ledger)), timeout=3)
-                except grpc.RpcError:
-                    continue
-                for raw in resp.blocks_json:
-                    ok, _ = self.ledger.append(Block.from_json(raw))
-                    if not ok:
-                        break
-                    adopted += 1
-        if adopted:
-            self.log(f"ledger sync: adopted {adopted} block(s) from peers (now {len(self.ledger)})")
-        return adopted
-
     def register(self):
         try:
             self.locator.call("RegisterNode", parking_pb2.RegisterNodeRequest(
@@ -175,7 +147,7 @@ class ZoneServicer(parking_pb2_grpc.ZoneServiceServicer):
         return parking_pb2.ZoneStatusResponse(
             zone_id=self.rt.zone_id, node_id=self.rt.node_id, total_slots=self.rt.total_slots,
             available_slots=counts["AVAILABLE"], occupied_slots=counts["OCCUPIED"],
-            reserved_slots=counts["RESERVED"], status="ONLINE", ledger_length=len(self.rt.ledger),
+            reserved_slots=counts["RESERVED"], status="ONLINE",
         )
 
     def GetAvailableSlots(self, request, context):
@@ -206,9 +178,8 @@ class ZoneServicer(parking_pb2_grpc.ZoneServiceServicer):
         self.rt.log(f"Admin: simulate_failure={request.simulate_failure} -> {status}")
         if was_failed and not request.simulate_failure:
             def recover():
-                self.rt.sync_ledger()
                 self.rt.register()
-                self.rt.log("Re-registered and caught up the ledger after recovery")
+                self.rt.log("Re-registered with the leader after recovery")
             threading.Thread(target=recover, daemon=True).start()
         return parking_pb2.SetFailureModeResponse(success=True, status=status)
 
@@ -276,52 +247,6 @@ class ZoneServicer(parking_pb2_grpc.ZoneServiceServicer):
     def RequestCS(self, request, context):
         self._check_alive(context)
         return parking_pb2.RaReply(granted=self.rt.ra.on_request(request.from_node, request.ts))
-
-    # ------------------------------------------------------------- ledger
-
-    def AppendBlock(self, request, context):
-        self._check_alive(context)
-        rt = self.rt
-        block = Block.from_json(request.block_json)
-        ok, msg = rt.ledger.append(block)
-        if not ok and (msg.startswith("gap") or msg.startswith("prev_hash")):
-            rt.sync_ledger()  # we missed blocks while down: pull them from peers, then retry
-            ok, msg = rt.ledger.append(block)
-        if ok:
-            rt.log(f"ledger +block #{block.index} ({block.tx.get('type')}) {block.hash[:10]}")
-        return parking_pb2.AppendBlockResponse(success=ok, message=msg, length=len(rt.ledger))
-
-    def GetBlocks(self, request, context):
-        self._check_alive(context)
-        return parking_pb2.GetBlocksResponse(blocks_json=[b.to_json() for b in self.rt.ledger.blocks_from(request.from_index)])
-
-    def _ledger_status(self, message=""):
-        valid, bad = self.rt.ledger.verify()
-        return parking_pb2.LedgerStatus(
-            node_id=self.rt.node_id, valid=valid, bad_index=bad, length=len(self.rt.ledger),
-            head_hash=self.rt.ledger.head().hash, message=message,
-        )
-
-    def VerifyLedger(self, request, context):
-        self._check_alive(context)
-        return self._ledger_status()
-
-    def TamperLedger(self, request, context):
-        self._check_alive(context)
-        ok = self.rt.ledger.tamper(request.index)
-        self.rt.log(f"!!! ledger block #{request.index} tampered locally (ok={ok})")
-        publish_event("LEDGER_TAMPERED", source=self.rt.node_id, data={"index": request.index})
-        return parking_pb2.Ack(success=ok, message="tampered" if ok else "index out of range")
-
-    def RepairLedger(self, request, context):
-        self._check_alive(context)
-        valid, bad = self.rt.ledger.verify()
-        if valid:
-            return self._ledger_status("already valid")
-        self.rt.ledger.truncate_from(bad)
-        adopted = self.rt.sync_ledger()
-        publish_event("LEDGER_REPAIRED", source=self.rt.node_id, data={"dropped_from": bad, "adopted": adopted})
-        return self._ledger_status(f"dropped blocks from #{bad}, re-synced {adopted} from peers")
 
 
 def _heartbeat_loop(rt: ZoneRuntime):
@@ -396,7 +321,6 @@ def serve(zone_key: str):
     def join():
         _init_overflow_lot(rt)
         rt.register()
-        rt.sync_ledger()  # a restarted zone starts with an empty chain and catches up from its peers
 
     threading.Thread(target=join, daemon=True).start()
     threading.Thread(target=_heartbeat_loop, args=(rt,), daemon=True).start()

@@ -10,7 +10,6 @@ The leader's jobs:
   * load-aware zone allocation (first_fit/round_robin/least_loaded)
   * when every zone is full, booking the shared overflow lot through a zone,
     which takes it under Ricart-Agrawala mutual exclusion   (Unit 3)
-  * committing every booking to the replicated ledger       (Unit 4)
   * asking the serverless pricing function for a quote      (Unit 4)
 
 Run:  python -m services.coordinator.server --id 3
@@ -37,7 +36,6 @@ from communication.grpc.grpc_client import make_server, replica_stub, zone_stub_
 from communication.messaging.message_bus import get_redis_client, publish_event
 from distributed import clocks
 from distributed.election import BullyElection
-from distributed.ledger import Block, make_block, make_genesis
 from services.coordinator.policies import Policies
 
 _http = httpx.Client(timeout=1.5)  # one shared client: building a new one per call costs ~150 ms
@@ -69,9 +67,6 @@ class Coordinator:
         self.lock = threading.RLock()
         self.policies = Policies()
         self.overflow_turn = itertools.count()  # rotates which zone admits the next overflow booking
-
-        self.ledger_lock = threading.Lock()
-        self.ledger_head: Block | None = None
 
         self.election = BullyElection(
             my_id=coord_id,
@@ -121,12 +116,11 @@ class Coordinator:
             self.log(f"following leader COORD_{leader_id} (term {term})")
             with self.lock:
                 self.nodes.clear()
-            self.ledger_head = None
 
     # --------------------------------------------------- leader take-over work
 
     def _become_leader_setup(self):
-        """New leader: rebuild the zone registry by probing zones, and find the ledger head."""
+        """New leader: rebuild the zone registry by probing the zones."""
         with self.lock:
             self.nodes.clear()
         for key, cfg in config.ZONES.items():
@@ -137,55 +131,6 @@ class Coordinator:
             with self.lock:
                 self.nodes[cfg["node_id"]] = NodeRecord(cfg["node_id"], cfg["zone_id"], cfg["host"], cfg["port"], st.total_slots)
         self.log(f"registry rebuilt from zones: {sorted(self.nodes)}")
-        self._load_ledger_head()
-
-    def _load_ledger_head(self):
-        best = None  # (length, zone_key)
-        for key in config.ZONES:
-            try:
-                st = zone_stub_for(key).VerifyLedger(parking_pb2.Empty(), timeout=2)
-            except grpc.RpcError:
-                continue
-            if st.valid and (best is None or st.length > best[0]):
-                best = (st.length, key)
-        if best is None:
-            self.ledger_head = make_genesis()
-            return
-        try:
-            resp = zone_stub_for(best[1]).GetBlocks(parking_pb2.GetBlocksRequest(from_index=best[0] - 1), timeout=2)
-            self.ledger_head = Block.from_json(resp.blocks_json[-1])
-            self.log(f"ledger head loaded: block #{self.ledger_head.index} from ZONE_{best[1]}")
-        except (grpc.RpcError, IndexError):
-            self.ledger_head = make_genesis()
-
-    # ------------------------------------------------------------ ledger commit
-
-    def commit_block(self, tx: dict) -> int:
-        """Append a block to the replicated ledger. Committed once a majority of zones accept."""
-        with self.ledger_lock:
-            if self.ledger_head is None:
-                self._load_ledger_head()
-            block = make_block(self.ledger_head, tx, clocks.get_clock().tick(), time.time())
-            raw = block.to_json()
-
-            def send(key):
-                try:
-                    return zone_stub_for(key).AppendBlock(parking_pb2.AppendBlockRequest(block_json=raw), timeout=3).success
-                except grpc.RpcError:
-                    return False
-
-            with ThreadPoolExecutor(max_workers=len(config.ZONES)) as pool:
-                acks = sum(1 for ok in pool.map(send, list(config.ZONES)) if ok)
-
-            majority = len(config.ZONES) // 2 + 1
-            if acks >= majority:
-                self.ledger_head = block
-                publish_event("LEDGER_COMMITTED", source=self.node_id, data={
-                    "index": block.index, "hash": block.hash[:12], "acks": acks, "tx": tx.get("type"),
-                })
-                return block.index
-            publish_event("LEDGER_COMMIT_FAILED", source=self.node_id, data={"index": block.index, "acks": acks})
-            return -1
 
     # ---------------------------------------------------------------- pricing
 
@@ -334,10 +279,6 @@ class CoordinatorServicer(parking_pb2_grpc.CoordinatorServicer):
             if not resp.success:
                 continue
 
-            block_index = c.commit_block({
-                "type": "RESERVE", "reservation_id": reservation_id, "zone_id": node.zone_id,
-                "slot_id": resp.slot_id, "policy": policy,
-            })
             price, price_source = c.quote_price(node.zone_key, s["available"] - 1, s["total"])
             publish_event("PARKING_RESERVED", source=node.node_id, data={
                 "zone_id": node.zone_id, "slot_id": resp.slot_id, "reservation_id": reservation_id, "policy": policy,
@@ -346,7 +287,7 @@ class CoordinatorServicer(parking_pb2_grpc.CoordinatorServicer):
             return parking_pb2.FindParkingResponse(
                 success=True, zone_id=node.zone_id, node_id=node.node_id, slot_id=resp.slot_id,
                 reservation_id=reservation_id, message="Slot reserved", price_per_hour=price, price_source=price_source,
-                ledger_block=block_index, policy=policy, served_by=c.node_id, lamport=clocks.get_clock().value(),
+                policy=policy, served_by=c.node_id, lamport=clocks.get_clock().value(),
             )
 
         return self._book_overflow(policy)
@@ -375,10 +316,6 @@ class CoordinatorServicer(parking_pb2_grpc.CoordinatorServicer):
             if not resp.success:
                 break  # the lot is shared: if it is full for one zone it is full for all
 
-            block_index = c.commit_block({
-                "type": "RESERVE", "reservation_id": reservation_id, "zone_id": "OVERFLOW",
-                "slot_id": "OVERFLOW", "policy": "overflow", "admitted_by": node.node_id,
-            })
             price, price_source = c.quote_price("OVERFLOW", 0, 1)
             publish_event("PARKING_RESERVED", source=node.node_id, data={
                 "zone_id": "OVERFLOW", "slot_id": "OVERFLOW", "reservation_id": reservation_id, "policy": "overflow",
@@ -386,7 +323,7 @@ class CoordinatorServicer(parking_pb2_grpc.CoordinatorServicer):
             return parking_pb2.FindParkingResponse(
                 success=True, zone_id="OVERFLOW", node_id=node.node_id, slot_id="OVERFLOW",
                 reservation_id=reservation_id, message="All zones full - overflow lot booked",
-                price_per_hour=price, price_source=price_source, ledger_block=block_index, policy=policy,
+                price_per_hour=price, price_source=price_source, policy=policy,
                 served_by=c.node_id, lamport=clocks.get_clock().value(),
             )
 
@@ -401,7 +338,6 @@ class CoordinatorServicer(parking_pb2_grpc.CoordinatorServicer):
             except grpc.RpcError:
                 continue
             if ack.success:
-                c.commit_block({"type": "RELEASE", "reservation_id": reservation_id, "zone_id": "OVERFLOW", "slot_id": "OVERFLOW"})
                 publish_event("PARKING_RELEASED", source=node.node_id, data={
                     "zone_id": "OVERFLOW", "slot_id": "OVERFLOW", "reservation_id": reservation_id,
                 })
@@ -424,7 +360,6 @@ class CoordinatorServicer(parking_pb2_grpc.CoordinatorServicer):
             return parking_pb2.ReleaseParkingResponse(success=False, message=f"Zone unreachable: {exc.code()}")
 
         if resp.success:
-            c.commit_block({"type": "RELEASE", "reservation_id": request.reservation_id, "zone_id": cfg["zone_id"], "slot_id": resp.slot_id})
             publish_event("PARKING_RELEASED", source=cfg["node_id"], data={
                 "zone_id": cfg["zone_id"], "slot_id": resp.slot_id, "reservation_id": request.reservation_id,
             })
@@ -456,7 +391,7 @@ class CoordinatorServicer(parking_pb2_grpc.CoordinatorServicer):
                 last_heartbeat=datetime.fromtimestamp(node.last_heartbeat, tz=timezone.utc).isoformat(),
                 total_slots=node.total_slots,
                 available_slots=st.available_slots if st else 0, occupied_slots=st.occupied_slots if st else 0,
-                reserved_slots=st.reserved_slots if st else 0, ledger_length=st.ledger_length if st else 0,
+                reserved_slots=st.reserved_slots if st else 0,
             ))
         status = self.c.election.status()
         return parking_pb2.SystemStatusResponse(nodes=infos, leader_id=status["leader_id"] or 0, term=status["term"])

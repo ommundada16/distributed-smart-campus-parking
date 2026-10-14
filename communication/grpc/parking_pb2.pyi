@@ -61,7 +61,7 @@ class ZoneStatusRequest(_message.Message):
     def __init__(self) -> None: ...
 
 class ZoneStatusResponse(_message.Message):
-    __slots__ = ("zone_id", "node_id", "total_slots", "available_slots", "occupied_slots", "reserved_slots", "status", "ledger_length")
+    __slots__ = ("zone_id", "node_id", "total_slots", "available_slots", "occupied_slots", "reserved_slots", "status")
     ZONE_ID_FIELD_NUMBER: _ClassVar[int]
     NODE_ID_FIELD_NUMBER: _ClassVar[int]
     TOTAL_SLOTS_FIELD_NUMBER: _ClassVar[int]
@@ -69,7 +69,6 @@ class ZoneStatusResponse(_message.Message):
     OCCUPIED_SLOTS_FIELD_NUMBER: _ClassVar[int]
     RESERVED_SLOTS_FIELD_NUMBER: _ClassVar[int]
     STATUS_FIELD_NUMBER: _ClassVar[int]
-    LEDGER_LENGTH_FIELD_NUMBER: _ClassVar[int]
     zone_id: str
     node_id: str
     total_slots: int
@@ -77,8 +76,7 @@ class ZoneStatusResponse(_message.Message):
     occupied_slots: int
     reserved_slots: int
     status: str
-    ledger_length: int
-    def __init__(self, zone_id: _Optional[str] = ..., node_id: _Optional[str] = ..., total_slots: _Optional[int] = ..., available_slots: _Optional[int] = ..., occupied_slots: _Optional[int] = ..., reserved_slots: _Optional[int] = ..., status: _Optional[str] = ..., ledger_length: _Optional[int] = ...) -> None: ...
+    def __init__(self, zone_id: _Optional[str] = ..., node_id: _Optional[str] = ..., total_slots: _Optional[int] = ..., available_slots: _Optional[int] = ..., occupied_slots: _Optional[int] = ..., reserved_slots: _Optional[int] = ..., status: _Optional[str] = ...) -> None: ...
 
 class AvailableSlotsRequest(_message.Message):
     __slots__ = ()
@@ -133,7 +131,7 @@ class FindParkingRequest(_message.Message):
     def __init__(self, policy: _Optional[str] = ...) -> None: ...
 
 class FindParkingResponse(_message.Message):
-    __slots__ = ("success", "zone_id", "node_id", "slot_id", "reservation_id", "message", "price_per_hour", "price_source", "ledger_block", "policy", "served_by", "lamport")
+    __slots__ = ("success", "zone_id", "node_id", "slot_id", "reservation_id", "message", "price_per_hour", "price_source", "policy", "served_by", "lamport")
     SUCCESS_FIELD_NUMBER: _ClassVar[int]
     ZONE_ID_FIELD_NUMBER: _ClassVar[int]
     NODE_ID_FIELD_NUMBER: _ClassVar[int]
@@ -142,7 +140,6 @@ class FindParkingResponse(_message.Message):
     MESSAGE_FIELD_NUMBER: _ClassVar[int]
     PRICE_PER_HOUR_FIELD_NUMBER: _ClassVar[int]
     PRICE_SOURCE_FIELD_NUMBER: _ClassVar[int]
-    LEDGER_BLOCK_FIELD_NUMBER: _ClassVar[int]
     POLICY_FIELD_NUMBER: _ClassVar[int]
     SERVED_BY_FIELD_NUMBER: _ClassVar[int]
     LAMPORT_FIELD_NUMBER: _ClassVar[int]
@@ -154,11 +151,10 @@ class FindParkingResponse(_message.Message):
     message: str
     price_per_hour: float
     price_source: str
-    ledger_block: int
     policy: str
     served_by: str
     lamport: int
-    def __init__(self, success: _Optional[bool] = ..., zone_id: _Optional[str] = ..., node_id: _Optional[str] = ..., slot_id: _Optional[str] = ..., reservation_id: _Optional[str] = ..., message: _Optional[str] = ..., price_per_hour: _Optional[float] = ..., price_source: _Optional[str] = ..., ledger_block: _Optional[int] = ..., policy: _Optional[str] = ..., served_by: _Optional[str] = ..., lamport: _Optional[int] = ...) -> None: ...
+    def __init__(self, success: _Optional[bool] = ..., zone_id: _Optional[str] = ..., node_id: _Optional[str] = ..., slot_id: _Optional[str] = ..., reservation_id: _Optional[str] = ..., message: _Optional[str] = ..., price_per_hour: _Optional[float] = ..., price_source: _Optional[str] = ..., policy: _Optional[str] = ..., served_by: _Optional[str] = ..., lamport: _Optional[int] = ...) -> None: ...
 
 class ReleaseParkingRequest(_message.Message):
     __slots__ = ("reservation_id",)
@@ -179,7 +175,7 @@ class SystemStatusRequest(_message.Message):
     def __init__(self) -> None: ...
 
 class NodeInfo(_message.Message):
-    __slots__ = ("node_id", "zone_id", "host", "port", "status", "last_heartbeat", "total_slots", "available_slots", "occupied_slots", "reserved_slots", "ledger_length")
+    __slots__ = ("node_id", "zone_id", "host", "port", "status", "last_heartbeat", "total_slots", "available_slots", "occupied_slots", "reserved_slots")
     NODE_ID_FIELD_NUMBER: _ClassVar[int]
     ZONE_ID_FIELD_NUMBER: _ClassVar[int]
     HOST_FIELD_NUMBER: _ClassVar[int]
@@ -190,7 +186,6 @@ class NodeInfo(_message.Message):
     AVAILABLE_SLOTS_FIELD_NUMBER: _ClassVar[int]
     OCCUPIED_SLOTS_FIELD_NUMBER: _ClassVar[int]
     RESERVED_SLOTS_FIELD_NUMBER: _ClassVar[int]
-    LEDGER_LENGTH_FIELD_NUMBER: _ClassVar[int]
     node_id: str
     zone_id: str
     host: str
@@ -201,8 +196,7 @@ class NodeInfo(_message.Message):
     available_slots: int
     occupied_slots: int
     reserved_slots: int
-    ledger_length: int
-    def __init__(self, node_id: _Optional[str] = ..., zone_id: _Optional[str] = ..., host: _Optional[str] = ..., port: _Optional[int] = ..., status: _Optional[str] = ..., last_heartbeat: _Optional[str] = ..., total_slots: _Optional[int] = ..., available_slots: _Optional[int] = ..., occupied_slots: _Optional[int] = ..., reserved_slots: _Optional[int] = ..., ledger_length: _Optional[int] = ...) -> None: ...
+    def __init__(self, node_id: _Optional[str] = ..., zone_id: _Optional[str] = ..., host: _Optional[str] = ..., port: _Optional[int] = ..., status: _Optional[str] = ..., last_heartbeat: _Optional[str] = ..., total_slots: _Optional[int] = ..., available_slots: _Optional[int] = ..., occupied_slots: _Optional[int] = ..., reserved_slots: _Optional[int] = ...) -> None: ...
 
 class SystemStatusResponse(_message.Message):
     __slots__ = ("nodes", "leader_id", "term")
@@ -341,53 +335,3 @@ class RaReply(_message.Message):
     GRANTED_FIELD_NUMBER: _ClassVar[int]
     granted: bool
     def __init__(self, granted: _Optional[bool] = ...) -> None: ...
-
-class AppendBlockRequest(_message.Message):
-    __slots__ = ("block_json",)
-    BLOCK_JSON_FIELD_NUMBER: _ClassVar[int]
-    block_json: str
-    def __init__(self, block_json: _Optional[str] = ...) -> None: ...
-
-class AppendBlockResponse(_message.Message):
-    __slots__ = ("success", "message", "length")
-    SUCCESS_FIELD_NUMBER: _ClassVar[int]
-    MESSAGE_FIELD_NUMBER: _ClassVar[int]
-    LENGTH_FIELD_NUMBER: _ClassVar[int]
-    success: bool
-    message: str
-    length: int
-    def __init__(self, success: _Optional[bool] = ..., message: _Optional[str] = ..., length: _Optional[int] = ...) -> None: ...
-
-class GetBlocksRequest(_message.Message):
-    __slots__ = ("from_index",)
-    FROM_INDEX_FIELD_NUMBER: _ClassVar[int]
-    from_index: int
-    def __init__(self, from_index: _Optional[int] = ...) -> None: ...
-
-class GetBlocksResponse(_message.Message):
-    __slots__ = ("blocks_json",)
-    BLOCKS_JSON_FIELD_NUMBER: _ClassVar[int]
-    blocks_json: _containers.RepeatedScalarFieldContainer[str]
-    def __init__(self, blocks_json: _Optional[_Iterable[str]] = ...) -> None: ...
-
-class LedgerStatus(_message.Message):
-    __slots__ = ("node_id", "valid", "bad_index", "length", "head_hash", "message")
-    NODE_ID_FIELD_NUMBER: _ClassVar[int]
-    VALID_FIELD_NUMBER: _ClassVar[int]
-    BAD_INDEX_FIELD_NUMBER: _ClassVar[int]
-    LENGTH_FIELD_NUMBER: _ClassVar[int]
-    HEAD_HASH_FIELD_NUMBER: _ClassVar[int]
-    MESSAGE_FIELD_NUMBER: _ClassVar[int]
-    node_id: str
-    valid: bool
-    bad_index: int
-    length: int
-    head_hash: str
-    message: str
-    def __init__(self, node_id: _Optional[str] = ..., valid: _Optional[bool] = ..., bad_index: _Optional[int] = ..., length: _Optional[int] = ..., head_hash: _Optional[str] = ..., message: _Optional[str] = ...) -> None: ...
-
-class TamperRequest(_message.Message):
-    __slots__ = ("index",)
-    INDEX_FIELD_NUMBER: _ClassVar[int]
-    index: int
-    def __init__(self, index: _Optional[int] = ...) -> None: ...

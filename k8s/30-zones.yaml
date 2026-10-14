@@ -1,5 +1,5 @@
 # One Deployment + Service per parking zone. Zones are NOT interchangeable replicas - each owns its own
-# slot state and ledger copy - so they are three separately-named workloads rather than replicas of one.
+# slot state - so they are three separately-named workloads rather than replicas of one.
 apiVersion: apps/v1
 kind: Deployment
 metadata: { name: zone-a, namespace: campus-parking }

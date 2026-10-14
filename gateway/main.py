@@ -87,14 +87,14 @@ def find_parking(policy: str = ""):
     out = {
         "success": resp.success, "zone_id": resp.zone_id, "node_id": resp.node_id, "slot_id": resp.slot_id,
         "reservation_id": resp.reservation_id, "message": resp.message, "price_per_hour": resp.price_per_hour,
-        "price_source": resp.price_source, "ledger_block": resp.ledger_block, "policy": resp.policy,
+        "price_source": resp.price_source, "policy": resp.policy,
         "served_by_coordinator": resp.served_by, "gateway": config.GATEWAY_NAME, "lamport": resp.lamport,
     }
     if resp.success:  # receipt from the second serverless function (best effort)
         try:
             r = _http.post(f"{config.FAAS_URL}/invoke/receipt", timeout=1.5, json={
                 "reservation_id": resp.reservation_id, "slot_id": resp.slot_id,
-                "price_per_hour": resp.price_per_hour, "ledger_block": resp.ledger_block,
+                "price_per_hour": resp.price_per_hour,
             })
             out["receipt"] = r.json()["result"]["receipt_no"]
         except Exception:
@@ -195,7 +195,7 @@ def system_status():
                 "host": node.host, "port": node.port, "status": node.status,
                 "last_heartbeat": node.last_heartbeat, "total_slots": node.total_slots,
                 "available_slots": node.available_slots, "occupied_slots": node.occupied_slots,
-                "reserved_slots": node.reserved_slots, "ledger_length": node.ledger_length,
+                "reserved_slots": node.reserved_slots,
             })
     except Exception:
         pass
@@ -385,61 +385,6 @@ def demo_mutex(use_mutex: bool = True, capacity: int = 2, hold_ms: int = 300):
         "entry_order": [row["node_id"] for row in sorted(good, key=lambda x: x["entered_at"])],
         "any_overlap": any(o["overlap_ms"] > 0 for o in overlaps),
     }
-
-
-# ------------------------------------------------------------------------- ledger
-
-def _ledger_status(key):
-    try:
-        st = zone_stub_for(key).VerifyLedger(parking_pb2.Empty(), timeout=2)
-        return {"node_id": st.node_id, "status": "ONLINE", "length": st.length, "valid": st.valid,
-                "bad_index": st.bad_index, "head_hash": st.head_hash}
-    except grpc.RpcError:
-        return {"node_id": config.ZONES[key]["node_id"], "status": "OFFLINE"}
-
-
-@app.get("/api/ledger")
-def ledger_view(limit: int = 25):
-    replicas = _parallel(_ledger_status, list(config.ZONES))
-    online = [r for r in replicas if r["status"] == "ONLINE"]
-    heads = {r["head_hash"] for r in online}
-    consistent = bool(online) and all(r["valid"] for r in online) and len(heads) == 1 and len({r["length"] for r in online}) == 1
-
-    healthy = [r for r in online if r["valid"]]
-    blocks = []
-    if healthy:
-        best = max(healthy, key=lambda r: r["length"])
-        key = config.ZONE_BY_NODE[best["node_id"]]
-        start = max(best["length"] - limit, 0)
-        resp = zone_stub_for(key).GetBlocks(parking_pb2.GetBlocksRequest(from_index=start), timeout=3)
-        blocks = [json.loads(b) for b in resp.blocks_json]
-    return {"replicas": replicas, "consistent": consistent, "blocks": blocks, "majority_hash": next(iter(heads)) if len(heads) == 1 else None}
-
-
-@app.post("/api/ledger/tamper")
-def ledger_tamper(zone: str = "B", index: int = 0):
-    key = zone.upper()
-    if key not in config.ZONES:
-        return {"success": False, "message": "unknown zone"}
-    if index <= 0:
-        index = max(_ledger_status(key).get("length", 1) - 2, 1)
-    try:
-        ack = zone_stub_for(key).TamperLedger(parking_pb2.TamperRequest(index=index), timeout=3)
-    except grpc.RpcError as exc:
-        return _error(exc)
-    return {"success": ack.success, "message": ack.message, "index": index}
-
-
-@app.post("/api/ledger/repair")
-def ledger_repair(zone: str = "B"):
-    key = zone.upper()
-    if key not in config.ZONES:
-        return {"success": False, "message": "unknown zone"}
-    try:
-        st = zone_stub_for(key).RepairLedger(parking_pb2.Empty(), timeout=8)
-    except grpc.RpcError as exc:
-        return _error(exc)
-    return {"success": st.valid, "message": st.message, "length": st.length}
 
 
 # -------------------------------------------------------------- serverless / batch

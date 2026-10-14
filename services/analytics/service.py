@@ -1,26 +1,22 @@
 """Batch analytics node: runs MapReduce jobs over booking history (Unit 4: Hadoop).
 
 Input is either synthetic demand (to show the engine at scale) or the real
-booking history read from the replicated ledger on the zones.
+booking history read from the Redis event stream (PARKING_RESERVED / PARKING_RELEASED).
 
 Run:  uvicorn services.analytics.service:app --port 9100
 """
 
 import sys
 import os
-import json
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor
-from datetime import datetime, timezone
+from datetime import datetime
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
-import grpc
 from fastapi import FastAPI, HTTPException
 
-import config
-from communication.grpc import parking_pb2
-from communication.grpc.grpc_client import zone_stub_for
+from communication.messaging.message_bus import read_recent_events
 from services.analytics.jobs import JOBS, synthetic_records
 from services.analytics.mapreduce import run_mapreduce
 
@@ -36,29 +32,22 @@ def _get_executor() -> ProcessPoolExecutor:
     return _executor
 
 
-def ledger_records() -> list[dict]:
-    """Turn RESERVE/RELEASE blocks into booking records (duration from the matching RELEASE)."""
-    chain = None
-    for key in config.ZONES:
-        try:
-            resp = zone_stub_for(key).GetBlocks(parking_pb2.GetBlocksRequest(from_index=0), timeout=3)
-            chain = [json.loads(b) for b in resp.blocks_json]
-            break
-        except grpc.RpcError:
-            continue
-    if chain is None:
-        raise HTTPException(503, "no zone reachable to read the ledger")
-
+def event_records() -> list[dict]:
+    """Turn PARKING_RESERVED / PARKING_RELEASED events into booking records
+    (duration comes from the matching release event)."""
+    events = read_recent_events(2000)
     reserved: dict[str, dict] = {}
     durations: dict[str, float] = {}
-    for block in chain:
-        tx = block["tx"]
-        if tx.get("type") == "RESERVE":
-            reserved[tx["reservation_id"]] = {"zone": tx["zone_id"], "ts": block["timestamp"]}
-        elif tx.get("type") == "RELEASE" and tx.get("reservation_id") in reserved:
-            durations[tx["reservation_id"]] = (block["timestamp"] - reserved[tx["reservation_id"]]["ts"]) / 60.0
+    for e in events:
+        data = e.get("data", {})
+        rid = data.get("reservation_id")
+        when = datetime.fromisoformat(e["timestamp"])
+        if e["event"] == "PARKING_RESERVED" and rid:
+            reserved[rid] = {"zone": data.get("zone_id", "?"), "ts": when}
+        elif e["event"] == "PARKING_RELEASED" and rid in reserved:
+            durations[rid] = (when - reserved[rid]["ts"]).total_seconds() / 60.0
     return [
-        {"zone": r["zone"], "hour": datetime.fromtimestamp(r["ts"], tz=timezone.utc).hour, "duration_min": durations.get(rid)}
+        {"zone": r["zone"], "hour": r["ts"].hour, "duration_min": durations.get(rid)}
         for rid, r in reserved.items()
     ]
 
@@ -78,7 +67,7 @@ def run(job: str = "peak_hours", source: str = "synthetic", n: int = 200000, wor
     if job not in JOBS:
         raise HTTPException(404, f"unknown job '{job}'")
     n = max(1, min(n, 2_000_000))
-    records = synthetic_records(n) if source == "synthetic" else ledger_records()
+    records = synthetic_records(n) if source == "synthetic" else event_records()
     spec = JOBS[job]
     executor = _get_executor() if workers > 1 else None
     output, stats = run_mapreduce(

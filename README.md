@@ -3,12 +3,12 @@
 B.Tech Distributed Systems project, built in two phases:
 
 * **FA-1 (Units 1–2):** three parking zones coordinated by one coordinator, using RPC (gRPC), message-oriented (Redis Streams), stream-oriented (WebSocket) and P2P (TCP) communication, with heartbeat fault tolerance. Docs: [`docs/FA1_*.md`](docs/FA1_SYLLABUS_MAPPING.md).
-* **FA-2 (Units 3–4, all units combined):** the same system, now with the problems that only exist *because* it is distributed — leader election with a beacon, mutual exclusion ordered by Lamport clocks, a replicated hash-chained ledger, load balancing, containers/Kubernetes, a serverless runtime and MapReduce analytics.
+* **FA-2 (Units 3–4, all units combined):** the same system, now with the problems that only exist *because* it is distributed — leader election with a beacon, mutual exclusion ordered by Lamport clocks, load balancing, containers/Kubernetes, a serverless runtime and MapReduce analytics.
 
 | Read this | For |
 |---|---|
 | [`docs/FA2_SYLLABUS_MAPPING.md`](docs/FA2_SYLLABUS_MAPPING.md) | Every syllabus topic → code → demo (and what is *not* implemented) |
-| [`docs/FA2_ARCHITECTURE.md`](docs/FA2_ARCHITECTURE.md) | Architecture, server inventory & configuration, trade-offs (CAP), limitations |
+| [`docs/FA2_ARCHITECTURE.md`](docs/FA2_ARCHITECTURE.md) | Architecture, server inventory & configuration, limitations |
 | [`docs/FA2_DEMO.md`](docs/FA2_DEMO.md) | 12-minute demo script + likely viva questions |
 
 ## What FA-2 adds
@@ -18,7 +18,6 @@ B.Tech Distributed Systems project, built in two phases:
 | Leader election + beacon (Unit 3) | 3 coordinator replicas, Bully election with terms — `distributed/election.py` | Leader Election |
 | Lamport clock (Unit 3) | Orders Ricart-Agrawala requests; carried on every gRPC call by interceptors — `distributed/clocks.py` | Mutual Exclusion |
 | Mutual exclusion (Unit 3) | Ricart-Agrawala across zones over the shared overflow lot, used when every zone is full — `distributed/mutex.py` | Mutual Exclusion |
-| Blockchain / ledger (Unit 4) | Majority-committed, hash-chained replicated ledger — `distributed/ledger.py` | Ledger |
 | Load balancing (Units 1, 4) | first-fit / round-robin / least-loaded policies; Nginx + K8s request balancing | Load Balancing, Cloud |
 | Serverless (Unit 4) | Local FaaS runtime + Lambda-style functions — `services/faas`, `functions/` | Cloud |
 | Hadoop (Unit 4) | Mini MapReduce with combiner — `services/analytics` | Cloud |
@@ -31,7 +30,7 @@ flowchart LR
     B["Browser"] --> W["Nginx<br/>load balancer + edge cache"]
     W --> G["2 x gateway<br/>stateless"]
     G --> C["3 x coordinator<br/>Bully election, 1 leader"]
-    C --> Z["3 x zone<br/>slots + ledger replica"]
+    C --> Z["3 x zone<br/>slots"]
     Z <-->|"Ricart-Agrawala<br/>Lamport clock"| Z
     C --> F["FaaS<br/>pricing"]
     G --> A["MapReduce<br/>analytics"]
@@ -74,18 +73,18 @@ pytest tests/test_integration.py -v                    # end-to-end against the 
 GATEWAY_URL=http://localhost:8080 pytest tests/test_integration.py -v   # …or against Docker Compose
 ```
 
-The integration suite exercises election/failover, mutual exclusion on/off, the overflow fallback when all zones are full, ledger tamper/repair, zone failure and ledger catch-up, allocation policies, serverless cold/warm start and MapReduce.
+The integration suite exercises election/failover, mutual exclusion on/off, the overflow fallback when all zones are full, zone failure and recovery, allocation policies, serverless cold/warm start and MapReduce.
 
 ## Project structure
 
 ```
 proto/parking.proto            gRPC interface (IDL) for coordinators and zones
 distributed/                   Unit 3/4 algorithms, transport-independent and unit-tested
-  clocks.py election.py mutex.py ledger.py
+  clocks.py election.py mutex.py
 communication/                 middleware: grpc/ (+ clock interceptors), messaging/, p2p/, websocket/, discovery.py
 services/
-  coordinator/                 replica: election, registry, allocation policies, overflow fallback, ledger commit
-  zone/                        slot service + overflow-lot mutex + ledger replica
+  coordinator/                 replica: election, registry, allocation policies, overflow fallback
+  zone/                        slot service + overflow-lot mutex
   faas/  analytics/            serverless runtime, MapReduce engine and jobs
 functions/                     Lambda-style handlers (pricing, receipt)
 gateway/                       stateless FastAPI gateway (REST + WebSocket)

@@ -38,12 +38,6 @@ service ZoneService {
   rpc OverflowRelease (OverflowReleaseRequest) returns (Ack);
   rpc RequestCS (RaRequest) returns (RaReply);                     // peer -> peer
 
-  // Replicated hash-chained ledger
-  rpc AppendBlock (AppendBlockRequest) returns (AppendBlockResponse);
-  rpc GetBlocks (GetBlocksRequest) returns (GetBlocksResponse);
-  rpc VerifyLedger (Empty) returns (LedgerStatus);
-  rpc TamperLedger (TamperRequest) returns (Ack);
-  rpc RepairLedger (Empty) returns (LedgerStatus);
 }
 
 message Ack {
@@ -86,7 +80,6 @@ message ZoneStatusResponse {
   int32 occupied_slots = 5;
   int32 reserved_slots = 6;
   string status = 7;
-  int32 ledger_length = 8;
 }
 
 message AvailableSlotsRequest {}
@@ -131,7 +124,6 @@ message FindParkingResponse {
   string message = 6;
   double price_per_hour = 7;
   string price_source = 8;
-  int32 ledger_block = 9;
   string policy = 10;
   string served_by = 11;
   int64 lamport = 12;
@@ -159,7 +151,6 @@ message NodeInfo {
   int32 available_slots = 8;
   int32 occupied_slots = 9;
   int32 reserved_slots = 10;
-  int32 ledger_length = 11;
 }
 
 message SystemStatusResponse {
@@ -222,26 +213,3 @@ message RaRequest {
 }
 
 message RaReply { bool granted = 1; }
-
-// ---------- ledger ----------
-message AppendBlockRequest { string block_json = 1; }
-
-message AppendBlockResponse {
-  bool success = 1;
-  string message = 2;
-  int32 length = 3;
-}
-
-message GetBlocksRequest { int32 from_index = 1; }
-message GetBlocksResponse { repeated string blocks_json = 1; }
-
-message LedgerStatus {
-  string node_id = 1;
-  bool valid = 2;
-  int32 bad_index = 3;
-  int32 length = 4;
-  string head_hash = 5;
-  string message = 6;
-}
-
-message TamperRequest { int32 index = 1; }

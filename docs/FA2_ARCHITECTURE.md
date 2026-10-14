@@ -9,9 +9,8 @@ A campus parking system whose parts run on different nodes that can fail indepen
 | Single point of failure | One coordinator served everything in FA-1 | 3 replicas + Bully election + beacon |
 | Concurrent access to a shared resource | When every zone is full, any of the three zones can admit cars to one shared overflow lot | Ricart-Agrawala mutual exclusion |
 | No global clock to order competing requests | Ricart-Agrawala must decide which zone's request came first | Lamport clock |
-| Tamper-evident shared record | Booking history | Hash-chained, majority-committed replicated ledger |
 | Load concentration | First-fit hammered Zone A | Load-aware allocation + request load balancing |
-| Node crash / recovery | Zone or coordinator dies | Heartbeats, re-registration, ledger catch-up, leader rediscovery |
+| Node crash / recovery | Zone or coordinator dies | Heartbeats, re-registration, leader rediscovery |
 
 ## 2. Component view
 
@@ -28,7 +27,7 @@ flowchart TB
         c3["coord-3<br/>LEADER"]
     end
 
-    subgraph zones["Zones - own the slots, hold a ledger replica"]
+    subgraph zones["Zones - own the slots"]
         direction LR
         za["zone-a"]
         zb["zone-b"]
@@ -44,14 +43,14 @@ flowchart TB
     gw -->|"gRPC to the leader<br/>found with WhoIsLeader"| c3
     c1 <-->|"ELECTION, ANNOUNCE, BEACON"| c3
     c2 <-->|"ELECTION, ANNOUNCE, BEACON"| c3
-    c3 -->|"gRPC: reserve, release, status<br/>AppendBlock, commit on 2 of 3"| zb
+    c3 -->|"gRPC: reserve, release, status"| zb
     za <-->|"Ricart-Agrawala REQUEST and REPLY<br/>stamped with the Lamport clock"| zb
     zb <--> zc
     za <--> zc
     c3 -->|"HTTP: price quote"| faas
     gw -->|"HTTP: receipt"| faas
     gw -->|"HTTP: run job"| ana
-    ana -->|"gRPC: read ledger"| zb
+    ana -.->|"read booking events"| redis
     c3 -.->|"publish events"| redis
     zb -.->|"overflow lot, events"| redis
     gw -.->|"read event stream, push to browser by WebSocket"| redis
@@ -60,9 +59,8 @@ flowchart TB
 How to read it:
 
 * **Control path (solid, top to bottom):** browser → Nginx → one of two gateways → the *current* coordinator leader → zones. Gateways and zones find the leader by asking any replica `WhoIsLeader`, so a failover needs no reconfiguration.
-* **Zone ↔ zone traffic:** only the Ricart-Agrawala messages that guard the shared overflow lot (plus ledger catch-up and the FA-1 P2P capacity polling). Each message carries a Lamport timestamp.
+* **Zone ↔ zone traffic:** only the Ricart-Agrawala messages that guard the shared overflow lot (plus the FA-1 P2P capacity polling). Each message carries a Lamport timestamp.
 * **Redis plays three roles:** event stream (relayed to the browser over WebSocket), the shared overflow counter, and the allocation-policy setting.
-* **Ledger:** the leader sends every booking block to all zones and treats it as committed when two of three accept.
 
 ### Booking flow, including the overflow lot
 
@@ -92,9 +90,8 @@ sequenceDiagram
         Z-->>L: slot number or lot full
     end
 
-    L->>Z: AppendBlock to all three zones, committed when 2 of 3 accept
     L->>F: price quote, cold or warm start
-    L-->>G: reservation, slot, price, ledger block
+    L-->>G: reservation, slot, price
     G->>F: receipt
     G-->>B: result
     L-)R: publish events with Lamport timestamps
@@ -111,7 +108,7 @@ sequenceDiagram
 | web | 1 | Nginx load balancer, edge cache, UI | 0.50 | 128 MB | web:80 → host 8080 |
 | gateway-1, gateway-2 | 2 | Stateless API gateway | 0.50 each | 256 MB each | gateway-N:8000 |
 | coord-1, coord-2, coord-3 | 3 | Coordinator replicas (1 leader, 2 standbys) | 0.50 each | 256 MB each | coord-N:510N |
-| zone-a, zone-b, zone-c | 3 | Slot service, overflow-lot mutex, ledger replica | 0.25 each | 128 MB each | zone-x:500x (P2P 600x) |
+| zone-a, zone-b, zone-c | 3 | Slot service, overflow-lot mutex | 0.25 each | 128 MB each | zone-x:500x (P2P 600x) |
 | redis | 1 | Event streams + shared config | 0.50 | 128 MB | redis:6379 |
 | faas | 1 | Serverless runtime | 0.25 | 128 MB | faas:9000 |
 | analytics | 1 | MapReduce workers | 1.00 | 512 MB | analytics:9100 |
@@ -123,38 +120,16 @@ Total = 5.5 vCPU limit / 2.5 GB limit (limits, not reservations). Ports differ o
 ## 4. Key design decisions
 
 1. **One elected leader, standbys on hot standby (active–passive).** Only the leader serves parking requests, so allocation decisions are serialised without distributed locking. The price: throughput is bounded by one coordinator; the benefit is simplicity and a short failover (≈ beacon timeout 4 s + election ≈ 0.5 s).
-2. **The leader keeps no irreplaceable state.** Zones own slot state; the ledger is replicated on zones; reservation IDs encode their zone. A new leader rebuilds its registry by probing the zones (`_become_leader_setup`) and reloads the ledger head from the longest valid zone replica.
+2. **The leader keeps no irreplaceable state.** Zones own slot state; reservation IDs encode their zone. A new leader rebuilds its registry by probing the zones (`_become_leader_setup`).
 3. **Terms.** Every leadership has a monotonically increasing term (as in Raft). Beacons carry it; a leader that receives a higher term steps down. A restarted node first *asks peers for their term* before declaring itself leader (otherwise a freshly restarted high-id node would announce a stale term and be ignored).
 4. **Clocks live in the middleware, not the application.** `ClientClockInterceptor`/`ServerClockInterceptor` attach and merge the Lamport clock on every gRPC call (request metadata out, trailing metadata back). Application code just calls `stub.Method()`, and every event it publishes is stamped.
 5. **Algorithms are separated from transport.** `distributed/*.py` take injected send functions, so they are unit-tested against an in-memory network (`tests/unit/test_algorithms.py`) and wired to gRPC in the services. This is what makes the algorithms demonstrably correct rather than only demonstrably running.
 6. **Mutual exclusion over a deliberately weak shared resource.** The overflow lot is a Redis counter updated with plain `GET` then `SET` (not `DECR`), so correctness comes from the algorithm and not from a lucky atomic primitive. A crashed peer is treated as an implicit grant (fault-tolerant variant). The leader hands each overflow booking to a zone in rotation (like a car arriving at that zone's gate), so different zones really do compete for the lot; a zone runs one Ricart-Agrawala request at a time and queues its own concurrent ones behind a local lock.
 7. **Only the synchronisation the system needs.** One clock (Lamport), because Ricart-Agrawala needs a total order of requests. No physical clock sync (nothing compares wall-clock times across nodes), no vector clocks (nothing must detect concurrent updates), no global snapshot (no feature needs a consistent global view).
 
-## 5. Consistency and availability trade-offs (CAP / PACELC)
-
-| Data | Choice | Behaviour during a failure / partition | Latency cost normally |
-|---|---|---|---|
-| Slot reservations | **Availability, per-zone consistency** — each slot is owned by exactly one zone, so no conflicting writes exist | If a zone is down its slots are unavailable, the others keep serving | one RPC |
-| Booking ledger | **Majority commit (2 of 3)**, then eventual catch-up | One zone down → still commits; a partitioned minority cannot commit (consistency over availability for *ledger writes*); a lagging replica resyncs from peers on its next append or on recovery | one parallel round of 3 RPCs |
-| Overflow lot (mutex) | **Consistency over availability** — safety of the critical section is never traded away | A node that is down is assumed to have granted, so the system stays live; a network *partition* that hides a live node could break safety — the known limitation of this fault-tolerant variant | 2(N−1) messages |
-| Leader election | **Availability with a brief gap** — no leader for ~4–5 s after a crash | Requests fail fast during the gap, then resume | beacon traffic |
-
-Why not proof-of-work / full BFT? The nodes are in one trust domain (a campus). A permissioned, leader-based ledger gives tamper *evidence* and replication cheaply; it does **not** defend against a malicious leader. State that limitation explicitly.
-
-## 6. Mapping to Hadoop / HDFS terms (for the viva)
-
-| HDFS / Hadoop | This project |
-|---|---|
-| NameNode (metadata, single active + standby) | Coordinator leader (+ 2 standbys) |
-| DataNodes holding replicated blocks | Zones holding ledger replicas |
-| Block checksums | Hash chain; `VerifyLedger` |
-| Re-replication of a lost/corrupt block | `RepairLedger` / `sync_ledger` |
-| MapReduce `Mapper → Combiner → Shuffle → Reducer` | `run_mapreduce` (same stages, process pool instead of a cluster) |
-
-## 7. What is *not* implemented (be upfront)
+## 5. What is *not* implemented (be upfront)
 
 * No multi-host cluster run; Kubernetes manifests are validated structurally but were not applied to a live cluster in development.
-* Zones keep slot state in memory (no durable storage); a restarted zone loses it (it does re-join and re-sync its ledger).
-* The ledger tolerates crash faults, not Byzantine faults.
+* Zones keep slot state in memory (no durable storage); a restarted zone loses it (it does re-join and re-register).
 * Lodha–Kshemkalyani and distributed deadlock detection are self-study notes, not code.
 * The "FaaS platform" and "MapReduce engine" are small local models of Lambda/Hadoop, not those products.

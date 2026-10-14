@@ -541,31 +541,6 @@ class ZoneServiceStub:
                 request_serializer=parking__pb2.RaRequest.SerializeToString,
                 response_deserializer=parking__pb2.RaReply.FromString,
                 _registered_method=True)
-        self.AppendBlock = channel.unary_unary(
-                '/parking.ZoneService/AppendBlock',
-                request_serializer=parking__pb2.AppendBlockRequest.SerializeToString,
-                response_deserializer=parking__pb2.AppendBlockResponse.FromString,
-                _registered_method=True)
-        self.GetBlocks = channel.unary_unary(
-                '/parking.ZoneService/GetBlocks',
-                request_serializer=parking__pb2.GetBlocksRequest.SerializeToString,
-                response_deserializer=parking__pb2.GetBlocksResponse.FromString,
-                _registered_method=True)
-        self.VerifyLedger = channel.unary_unary(
-                '/parking.ZoneService/VerifyLedger',
-                request_serializer=parking__pb2.Empty.SerializeToString,
-                response_deserializer=parking__pb2.LedgerStatus.FromString,
-                _registered_method=True)
-        self.TamperLedger = channel.unary_unary(
-                '/parking.ZoneService/TamperLedger',
-                request_serializer=parking__pb2.TamperRequest.SerializeToString,
-                response_deserializer=parking__pb2.Ack.FromString,
-                _registered_method=True)
-        self.RepairLedger = channel.unary_unary(
-                '/parking.ZoneService/RepairLedger',
-                request_serializer=parking__pb2.Empty.SerializeToString,
-                response_deserializer=parking__pb2.LedgerStatus.FromString,
-                _registered_method=True)
 
 
 class ZoneServiceServicer:
@@ -622,37 +597,6 @@ class ZoneServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def AppendBlock(self, request, context):
-        """Replicated hash-chained ledger
-        """
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def GetBlocks(self, request, context):
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def VerifyLedger(self, request, context):
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def TamperLedger(self, request, context):
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def RepairLedger(self, request, context):
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
 
 def add_ZoneServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -695,31 +639,6 @@ def add_ZoneServiceServicer_to_server(servicer, server):
                     servicer.RequestCS,
                     request_deserializer=parking__pb2.RaRequest.FromString,
                     response_serializer=parking__pb2.RaReply.SerializeToString,
-            ),
-            'AppendBlock': grpc.unary_unary_rpc_method_handler(
-                    servicer.AppendBlock,
-                    request_deserializer=parking__pb2.AppendBlockRequest.FromString,
-                    response_serializer=parking__pb2.AppendBlockResponse.SerializeToString,
-            ),
-            'GetBlocks': grpc.unary_unary_rpc_method_handler(
-                    servicer.GetBlocks,
-                    request_deserializer=parking__pb2.GetBlocksRequest.FromString,
-                    response_serializer=parking__pb2.GetBlocksResponse.SerializeToString,
-            ),
-            'VerifyLedger': grpc.unary_unary_rpc_method_handler(
-                    servicer.VerifyLedger,
-                    request_deserializer=parking__pb2.Empty.FromString,
-                    response_serializer=parking__pb2.LedgerStatus.SerializeToString,
-            ),
-            'TamperLedger': grpc.unary_unary_rpc_method_handler(
-                    servicer.TamperLedger,
-                    request_deserializer=parking__pb2.TamperRequest.FromString,
-                    response_serializer=parking__pb2.Ack.SerializeToString,
-            ),
-            'RepairLedger': grpc.unary_unary_rpc_method_handler(
-                    servicer.RepairLedger,
-                    request_deserializer=parking__pb2.Empty.FromString,
-                    response_serializer=parking__pb2.LedgerStatus.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -939,141 +858,6 @@ class ZoneService:
             '/parking.ZoneService/RequestCS',
             parking__pb2.RaRequest.SerializeToString,
             parking__pb2.RaReply.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def AppendBlock(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/parking.ZoneService/AppendBlock',
-            parking__pb2.AppendBlockRequest.SerializeToString,
-            parking__pb2.AppendBlockResponse.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def GetBlocks(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/parking.ZoneService/GetBlocks',
-            parking__pb2.GetBlocksRequest.SerializeToString,
-            parking__pb2.GetBlocksResponse.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def VerifyLedger(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/parking.ZoneService/VerifyLedger',
-            parking__pb2.Empty.SerializeToString,
-            parking__pb2.LedgerStatus.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def TamperLedger(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/parking.ZoneService/TamperLedger',
-            parking__pb2.TamperRequest.SerializeToString,
-            parking__pb2.Ack.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def RepairLedger(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/parking.ZoneService/RepairLedger',
-            parking__pb2.Empty.SerializeToString,
-            parking__pb2.LedgerStatus.FromString,
             options,
             channel_credentials,
             insecure,

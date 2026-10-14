@@ -23,10 +23,10 @@ Legend: ✅ implemented and demonstrable · 🔶 modelled locally (same concepts
 | RPC | ✅ | gRPC: `proto/parking.proto`; zone, coordinator and election calls |
 | Message-oriented communication | ✅ | Redis Streams event bus: `communication/messaging/message_bus.py` (events now carry Lamport timestamps) |
 | Stream-oriented communication | ✅ | WebSocket fan-out to the browser: `communication/websocket/` |
-| P2P messaging | ✅ | Zone↔zone TCP (FA-1 capacity polling) **plus** zone↔zone gRPC for mutual exclusion and ledger sync |
+| P2P messaging | ✅ | Zone↔zone TCP (FA-1 capacity polling) **plus** zone↔zone gRPC for mutual exclusion |
 | WebRTC | 📘 | Not used (browser↔browser media); the WebSocket path covers browser push |
 | *Self-study:* names, identifiers, addresses | ✅ | Replicas are found by **name** (`COORD_n`), resolved through `config.py`; `WhoIsLeader` maps "the leader" to an address. Reservation IDs encode the zone (`RES-B-3F6D0212`) so any coordinator can route a release with no lookup table |
-| *Self-study:* fault tolerance | ✅ | Heartbeats, simulated zone crash, leader failover, ledger catch-up. **UI: Overview, Leader Election, Ledger** |
+| *Self-study:* fault tolerance | ✅ | Heartbeats, simulated zone crash, leader failover. **UI: Overview, Leader Election** |
 
 ## Unit 3 — Synchronization (new)
 
@@ -65,14 +65,13 @@ We implemented only what the system needs, and say why for the rest (see "Why on
 |---|---|---|
 | Distributed object-based systems | ✅ | `ZoneService` and `Coordinator` are remote objects: methods defined in an IDL (`parking.proto`), clients hold **stubs** (proxies) from `communication/grpc/grpc_client.py`. Same model as CORBA / Java RMI, with a language-neutral interface |
 | Distributed web-based systems | ✅ | Browser → Nginx → gateway replicas (REST + WebSocket); stateless gateways, shared state in Redis, edge caching. **UI: Cloud → Web-scale delivery** |
-| Distributed file system | 🔶 | The booking ledger is a replicated, append-only log with checksums (hash chain), majority commit and replica catch-up — the same ideas as GFS/HDFS block replication, but it is a ledger, not a general file system. See `docs/FA2_ARCHITECTURE.md` §6 for the HDFS comparison |
+| Distributed file system | 📘 | Not implemented, theory only: a DFS (GFS/HDFS) splits files into blocks, stores each block on several data nodes, and keeps the file-to-block map on a name node. Nothing in a parking system needs a shared file store, so we did not build one |
 | Serverless architectures | 🔶 | `services/faas/runtime.py` is a small FaaS platform (cold start, warm, scale-to-zero, per-ms billing); `functions/pricing.py` and `functions/receipt.py` are Lambda-shaped handlers. **UI: Cloud → Serverless** |
 | Case study: Megaport | 📘 | Software-defined network interconnection (on-demand virtual circuits via an API). Relevance: programmable infrastructure — our `k8s/` and Compose files provision the "network" of services declaratively |
 | Case study: Cloudflare | 🔶 | Edge network that caches and runs code close to users (Workers). Modelled by the Nginx **edge cache** (`X-Cache-Status` HIT/MISS) and the FaaS runtime. We do not implement anycast or a global network |
 | Case study: AWS | 🔶 | Lambda ↔ our FaaS runtime handler model; ELB ↔ Nginx / K8s Service load balancing; ECS/EKS ↔ Compose/K8s; ASG ↔ HorizontalPodAutoscaler (`k8s/40-gateway-web.yaml`) |
 | Apache Hadoop | ✅ | `services/analytics/mapreduce.py` — map, combine, shuffle, reduce on a worker-process pool. **UI: Cloud → Batch analytics** (1 vs 4 workers, shuffle-reduction from the combiner) |
 | Kubernetes | ✅ | `k8s/`: StatefulSet (stable identity → election priority), Deployments, Services, ConfigMap, probes, resource limits, HPA. *The manifests were validated structurally; apply them to kind/minikube to run them* |
-| *Self-study:* blockchain / distributed ledgers; trade-offs in modern distributed databases | ✅ | Hash-chained ledger: `distributed/ledger.py`. **UI: Ledger** (tamper → detect → repair). Trade-offs: `docs/FA2_ARCHITECTURE.md` §5 (CAP / PACELC) |
 
 ## Load balancing (asked in FA-1)
 

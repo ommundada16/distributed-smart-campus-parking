@@ -10,7 +10,6 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 
 from distributed.clocks import LamportClock
 from distributed.election import BullyElection
-from distributed.ledger import Ledger, make_block
 from distributed.mutex import WANTED, RicartAgrawala
 
 
@@ -23,29 +22,6 @@ def test_lamport_receive_jumps_past_sender():
     sent = a.tick()  # a = 3
     assert b.update(sent) == 4
     assert b.tick() == 5
-
-
-# ---- ledger -----------------------------------------------------------------
-
-def test_ledger_chain_validates_and_detects_tampering():
-    ledger = Ledger()
-    for i in range(3):
-        ok, _ = ledger.append(make_block(ledger.head(), {"type": "RESERVE", "n": i}, lamport=i, timestamp=float(i)))
-        assert ok
-    assert ledger.verify() == (True, -1)
-    assert ledger.tamper(2)
-    assert ledger.verify() == (False, 2)
-
-
-def test_ledger_rejects_gap_and_bad_prev_hash():
-    ledger = Ledger()
-    b1 = make_block(ledger.head(), {"x": 1}, 1, 1.0)
-    b2 = make_block(b1, {"x": 2}, 2, 2.0)
-    assert ledger.append(b2)[0] is False  # gap
-    assert ledger.append(b1)[0] is True
-    other = Ledger()
-    fork = make_block(other.head(), {"x": "fork"}, 1, 1.0)
-    assert ledger.append(fork) == (False, "conflict: different block already at this index")
 
 
 # ---- Ricart-Agrawala --------------------------------------------------------

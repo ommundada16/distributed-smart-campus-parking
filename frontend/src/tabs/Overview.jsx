@@ -102,7 +102,6 @@ export default function Overview({ systemStatus, events, refreshStatus }) {
                     <tr><td>Available</td><td>{z.available_slots}</td></tr>
                     <tr><td>Occupied</td><td>{z.occupied_slots}</td></tr>
                     <tr><td>Reserved</td><td>{z.reserved_slots}</td></tr>
-                    <tr><td>Ledger blocks</td><td>{z.ledger_length}</td></tr>
                   </tbody>
                 </table>
                 <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
@@ -117,15 +116,15 @@ export default function Overview({ systemStatus, events, refreshStatus }) {
         </div>
         <p className="muted">
           Fail makes the real zone process stop heartbeating and reject RPCs. The leader detects it through
-          the heartbeat timeout; on Recover the zone re-registers and <b>catches its ledger copy up</b> from peers.
+          the heartbeat timeout; on Recover the zone re-registers with the leader.
         </p>
       </section>
 
       <section className="panel">
         <h2>Find &amp; Reserve Parking</h2>
         <p className="muted">
-          Browser → Nginx → Gateway → <b>elected coordinator</b> → allocation policy → Zone (gRPC) → ledger commit
-          to all zones → serverless price quote. When every zone is full, a zone books the shared overflow lot
+          Browser → Nginx → Gateway → <b>elected coordinator</b> → allocation policy → Zone (gRPC) → serverless
+          price quote. When every zone is full, a zone books the shared overflow lot
           under Ricart-Agrawala mutual exclusion.
         </p>
         <button onClick={handleFindParking} disabled={finding}>{finding ? 'Searching...' : 'Find Parking'}</button>
@@ -137,7 +136,6 @@ export default function Overview({ systemStatus, events, refreshStatus }) {
               <tr><td>Reservation ID</td><td>{findResult.reservation_id}</td></tr>
               <tr><td>Allocation policy</td><td>{findResult.policy}</td></tr>
               <tr><td>Price (serverless)</td><td>₹{findResult.price_per_hour}/hr <span className="muted">— {findResult.price_source}</span></td></tr>
-              <tr><td>Ledger block</td><td>#{findResult.ledger_block}</td></tr>
               <tr><td>Receipt</td><td>{findResult.receipt || '—'}</td></tr>
               <tr><td>Served by</td><td>{findResult.gateway} → {findResult.served_by_coordinator} (Lamport {findResult.lamport})</td></tr>
             </tbody>

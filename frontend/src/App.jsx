@@ -3,7 +3,6 @@ import { connectEventStream, getRecentEvents, getSystemStatus } from './api'
 import Overview from './tabs/Overview'
 import Coordination from './tabs/Coordination'
 import Mutex from './tabs/Mutex'
-import Ledger from './tabs/Ledger'
 import LoadBalancing from './tabs/LoadBalancing'
 import Cloud from './tabs/Cloud'
 
@@ -16,7 +15,6 @@ const TABS = [
   { id: 'overview', label: 'Overview', unit: 'FA-1' },
   { id: 'coordination', label: 'Leader Election', unit: 'Unit 3' },
   { id: 'mutex', label: 'Mutual Exclusion', unit: 'Unit 3' },
-  { id: 'ledger', label: 'Ledger', unit: 'Unit 4' },
   { id: 'balance', label: 'Load Balancing', unit: 'Units 1/4' },
   { id: 'cloud', label: 'Cloud & Deployment', unit: 'Unit 4' },
 ]
@@ -72,7 +70,7 @@ export default function App() {
         <h1>Distributed Smart Campus Parking System <span className="fa2">FA-2</span></h1>
         <p className="muted">
           Browser → Nginx (load balancer + edge cache) → Gateway replicas → <b>elected</b> Coordinator → Zones A/B/C
-          · Redis Streams · replicated ledger · serverless functions · MapReduce
+          · Redis Streams · serverless functions · MapReduce
         </p>
         <div className="chips">
           <span className="chip">Leader: <b>{leader ? leader.node_id : 'electing…'}</b>{leader ? ` (term ${leader.term})` : ''}</span>
@@ -93,7 +91,6 @@ export default function App() {
       {tab === 'overview' && <Overview systemStatus={systemStatus} events={events} refreshStatus={refreshStatus} />}
       {tab === 'coordination' && <Coordination events={events} />}
       {tab === 'mutex' && <Mutex />}
-      {tab === 'ledger' && <Ledger />}
       {tab === 'balance' && <LoadBalancing />}
       {tab === 'cloud' && <Cloud systemStatus={systemStatus} />}
     </div>
