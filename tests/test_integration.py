@@ -22,8 +22,6 @@ import httpx
 import pytest
 
 import config
-from communication.grpc import parking_pb2
-from communication.grpc.grpc_client import zone_stub_for
 from communication.messaging.message_bus import read_recent_events
 
 GATEWAY_URL = os.environ.get("GATEWAY_URL", f"http://localhost:{config.GATEWAY_PORT}")
@@ -85,50 +83,48 @@ def test_p2p_capacity_query():
     assert reply.startswith("AVAILABLE_SLOTS=")
 
 
-def test_events_are_stamped_with_logical_clocks():
+def test_events_are_stamped_with_lamport_timestamps():
     client.post("/api/parking/find")
     time.sleep(0.5)
     stamped = [e for e in read_recent_events(30) if "lamport" in e]
     assert stamped, "no event carried a Lamport timestamp"
-    assert all(isinstance(e["vclock"], dict) and e["vclock"] for e in stamped)
+    assert all(isinstance(e["lamport"], int) and e["lamport"] > 0 for e in stamped)
 
 
-# ------------------------------------------------------------ Unit 3: synchronisation
-
-def test_berkeley_sync_brings_clocks_together():
-    client.post("/api/clocks/skew")  # start from the deliberately skewed clocks
-    before = client.get("/api/clocks").json()["rows"]
-    spread_before = max(r["offset"] for r in before if r["status"] == "ONLINE") - min(r["offset"] for r in before if r["status"] == "ONLINE")
-    assert spread_before > 3.0
-
-    synced = client.post("/api/clocks/sync").json()
-    assert synced["success"] and len(synced["rows"]) == 6
-
-    after = [r for r in client.get("/api/clocks").json()["rows"] if r["status"] == "ONLINE"]
-    spread_after = max(r["offset"] for r in after) - min(r["offset"] for r in after)
-    assert spread_after < 0.05, f"clocks still {spread_after:.3f}s apart"
-    client.post("/api/clocks/skew")
-
+# ------------------------------------------------------- Unit 3: mutual exclusion
 
 def test_mutual_exclusion_prevents_overbooking():
     unsafe = client.post("/api/demo/mutex", params={"use_mutex": "false"}).json()
-    assert unsafe["overbooked"] and unsafe["lost_update"]
-    assert all(rel["relation"] == "concurrent" for rel in unsafe["relations"])
+    assert unsafe["overbooked"] and unsafe["lost_update"] and unsafe["any_overlap"]
 
     safe = client.post("/api/demo/mutex", params={"use_mutex": "true"}).json()
     assert safe["accepted"] == safe["capacity"] and not safe["overbooked"]
     assert not safe["lost_update"] and not safe["any_overlap"]
-    assert all(rel["relation"] in ("before", "after") for rel in safe["relations"])  # totally ordered
+    assert all(r["request_ts"] > 0 for r in safe["results"])  # every zone sent a Lamport-stamped REQUEST
+
+    lot = client.get("/api/overflow").json()  # the demo leaves the real lot empty at full capacity
+    assert lot["free"] == config.OVERFLOW_CAPACITY and lot["bookings"] == {}
 
 
-def test_chandy_lamport_snapshot_is_consistent():
-    result = client.post("/api/demo/snapshot", params={"amount": 2, "delay_ms": 2500}).json()
-    assert result["success"], result
-    assert result["naive_total"] < result["expected_total"]      # naive sum misses the in-flight bays
-    assert result["in_flight_total"] == 2
-    assert result["consistent"] and result["snapshot_total"] == result["expected_total"]
-    assert all(n["complete"] for n in result["nodes"])
-    _wait(lambda: client.get("/api/flex").json()["total"] == result["expected_total"], timeout=10)
+def test_full_zones_fall_back_to_overflow_lot():
+    reserved = []
+    try:
+        for _ in range(sum(z["total_slots"] for z in config.ZONES.values()) + 1):
+            r = client.post("/api/parking/find").json()
+            assert r["success"], r
+            reserved.append(r["reservation_id"])
+            if r["zone_id"] == "OVERFLOW":
+                break
+        assert r["zone_id"] == "OVERFLOW" and r["reservation_id"].startswith("RES-OVF-") and r["ledger_block"] > 0
+
+        lot = client.get("/api/overflow").json()
+        assert lot["free"] == config.OVERFLOW_CAPACITY - 1 and r["reservation_id"] in lot["bookings"]
+    finally:
+        for rid in reserved:
+            client.post("/api/parking/release", json={"reservation_id": rid})
+
+    lot = client.get("/api/overflow").json()
+    assert lot["free"] == config.OVERFLOW_CAPACITY and lot["bookings"] == {}
 
 
 # ------------------------------------------------------------------ Unit 3: election

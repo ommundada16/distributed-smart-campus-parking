@@ -31,7 +31,6 @@ from communication.grpc import parking_pb2
 from communication.grpc.grpc_client import replica_stub, zone_stub_for
 from communication.messaging.message_bus import consume_events, get_redis_client, publish_event, read_recent_events
 from communication.websocket.websocket_manager import manager
-from distributed.clocks import compare_vc, decode_vc
 
 app = FastAPI(title="Distributed Smart Campus Parking System - API Gateway")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -196,7 +195,7 @@ def system_status():
                 "host": node.host, "port": node.port, "status": node.status,
                 "last_heartbeat": node.last_heartbeat, "total_slots": node.total_slots,
                 "available_slots": node.available_slots, "occupied_slots": node.occupied_slots,
-                "reserved_slots": node.reserved_slots, "flex_bays": node.flex_bays, "ledger_length": node.ledger_length,
+                "reserved_slots": node.reserved_slots, "ledger_length": node.ledger_length,
             })
     except Exception:
         pass
@@ -315,80 +314,50 @@ def loadtest_compare(n: int = 24):
     return {"results": [_run_policy_load(p, n) for p in config.POLICIES], "requests_each": n}
 
 
-# ------------------------------------------------------------------------- clocks
+# --------------------------------------------------- overflow lot / mutual exclusion
 
-def _clock_row(target):
-    kind, key = target
+def _overflow_state() -> dict:
+    r = get_redis_client()
+    free = r.get(config.OVERFLOW_KEY)
+    return {"capacity": config.OVERFLOW_CAPACITY, "free": int(free) if free is not None else None,
+            "bookings": r.hgetall(config.OVERFLOW_BOOKINGS_KEY)}
+
+
+@app.get("/api/overflow")
+def overflow_state():
+    """The shared overflow lot as real bookings left it (used when every zone is full)."""
     try:
-        if kind == "zone":
-            info = zone_stub_for(key).GetClockInfo(parking_pb2.Empty(), timeout=1.5)
-        else:
-            info = replica_stub(key).GetClockInfo(parking_pb2.Empty(), timeout=1.5)
-    except grpc.RpcError:
-        name = config.ZONES[key]["node_id"] if kind == "zone" else config.COORDINATORS[key]["node_id"]
-        return {"node_id": name, "status": "OFFLINE"}
-    return {"node_id": info.node_id, "status": "ONLINE", "lamport": info.lamport, "vclock": decode_vc(info.vclock_json),
-            "physical_time": info.physical_time, "offset": info.offset}
-
-
-@app.get("/api/clocks")
-def clocks_state():
-    targets = [("zone", k) for k in config.ZONES] + [("coord", i) for i in config.coordinator_ids()]
-    rows = _parallel(_clock_row, targets)
-    now = time.time()
-    for r in rows:
-        if r["status"] == "ONLINE":
-            r["skew_vs_real_ms"] = round((r["physical_time"] - now) * 1000)
-    return {"rows": rows, "real_time": now}
-
-
-@app.post("/api/clocks/sync")
-def clocks_sync():
-    try:
-        resp = _leader_call("SyncClocks", parking_pb2.Empty(), timeout=10)
+        return _overflow_state()
     except Exception as exc:
-        return _error(exc)
-    return {"success": resp.success, "method": resp.method, "message": resp.message, "rows": [
-        {"node_id": r.node_id, "offset_before_ms": round(r.offset_before * 1000, 1), "adjustment_ms": round(r.adjustment * 1000, 1),
-         "offset_after_ms": round(r.offset_after * 1000, 1), "rtt_ms": round(r.rtt_ms, 2)} for r in resp.rows]}
+        return {"error": str(exc)}
 
-
-@app.post("/api/clocks/skew")
-def clocks_reskew():
-    """Demo reset: put every node's clock back to its deliberate skew."""
-    def apply(target):
-        kind, key = target
-        cfg = config.ZONES[key] if kind == "zone" else config.COORDINATORS[key]
-        stub = zone_stub_for(key) if kind == "zone" else replica_stub(key)
-        try:
-            stub.AdjustClock(parking_pb2.AdjustClockRequest(delta=config.CLOCK_SKEW[cfg["node_id"]], absolute=True), timeout=2)
-            return True
-        except grpc.RpcError:
-            return False
-
-    ok = _parallel(apply, [("zone", k) for k in config.ZONES] + [("coord", i) for i in config.coordinator_ids()])
-    return {"success": any(ok), "reset": sum(ok)}
-
-
-# --------------------------------------------------------- mutual exclusion demo
 
 @app.post("/api/demo/mutex")
 def demo_mutex(use_mutex: bool = True, capacity: int = 2, hold_ms: int = 300):
-    """Three zones try to take the last slots of the shared overflow lot at the same instant."""
+    """Three zones admit a car to the shared overflow lot at the same instant, as
+    if three cars reached three zone gates together. The lot is first set to
+    `capacity` free slots, and afterwards reset to empty at full capacity."""
     capacity = max(1, min(capacity, 2))
     r = get_redis_client()
     r.set(config.OVERFLOW_KEY, capacity)
     r.delete(config.OVERFLOW_BOOKINGS_KEY)
-    run = f"run{int(time.time()) % 100000}"
+    run = f"DEMO{int(time.time()) % 100000}"
 
     def book(key):
         try:
             return key, zone_stub_for(key).OverflowBook(
-                parking_pb2.OverflowBookRequest(use_mutex=use_mutex, hold_ms=hold_ms, booking_id=run), timeout=60)
+                parking_pb2.OverflowBookRequest(use_mutex=use_mutex, hold_ms=hold_ms, booking_id=f"{run}-{key}"), timeout=60)
         except grpc.RpcError as exc:
             return key, exc
 
-    results = dict(_parallel(book, list(config.ZONES)))
+    try:
+        results = dict(_parallel(book, list(config.ZONES)))
+        final_free = int(r.get(config.OVERFLOW_KEY) or 0)
+        bookings = [f"{bid}@{node}" for bid, node in r.hgetall(config.OVERFLOW_BOOKINGS_KEY).items()]
+    finally:
+        r.set(config.OVERFLOW_KEY, config.OVERFLOW_CAPACITY)
+        r.delete(config.OVERFLOW_BOOKINGS_KEY)
+
     rows = []
     for key, resp in results.items():
         if isinstance(resp, grpc.RpcError):
@@ -396,109 +365,25 @@ def demo_mutex(use_mutex: bool = True, capacity: int = 2, hold_ms: int = 300):
             continue
         rows.append({
             "node_id": resp.node_id, "success": resp.success, "message": resp.message, "saw_free": resp.saw_free,
-            "lamport": resp.lamport, "vclock": decode_vc(resp.vclock_json),
-            "entered_at": resp.entered_at, "exited_at": resp.exited_at, "trace": list(resp.trace),
+            "request_ts": resp.request_ts, "entered_at": resp.entered_at, "exited_at": resp.exited_at, "trace": list(resp.trace),
         })
 
     good = [row for row in rows if "error" not in row]
-    relations = []
+    overlaps = []
     for i in range(len(good)):
         for j in range(i + 1, len(good)):
             a, b = good[i], good[j]
             overlap = min(a["exited_at"], b["exited_at"]) - max(a["entered_at"], b["entered_at"])
-            relations.append({"a": a["node_id"], "b": b["node_id"], "relation": compare_vc(a["vclock"], b["vclock"]),
-                              "overlap_ms": round(max(overlap, 0) * 1000)})
+            overlaps.append({"a": a["node_id"], "b": b["node_id"], "overlap_ms": round(max(overlap, 0) * 1000)})
 
     accepted = sum(1 for row in good if row["success"])
-    final_free = int(r.get(config.OVERFLOW_KEY) or 0)
-    bookings = r.lrange(config.OVERFLOW_BOOKINGS_KEY, 0, -1)
     return {
         "use_mutex": use_mutex, "capacity": capacity, "accepted": accepted, "overbooked": accepted > capacity,
         "final_free_counter": final_free, "expected_free_counter": capacity - accepted,
         "lost_update": final_free != capacity - accepted, "bookings": bookings,
-        "results": sorted(rows, key=lambda x: x["node_id"]), "relations": relations,
-        "any_overlap": any(rel["overlap_ms"] > 0 for rel in relations),
-    }
-
-
-# --------------------------------------------------------------------- snapshot demo
-
-@app.get("/api/flex")
-def flex_state():
-    def probe(key):
-        try:
-            st = zone_stub_for(key).GetZoneStatus(parking_pb2.ZoneStatusRequest(), timeout=1.5)
-            return {"node_id": st.node_id, "flex_bays": st.flex_bays, "status": "ONLINE"}
-        except grpc.RpcError:
-            return {"node_id": config.ZONES[key]["node_id"], "flex_bays": None, "status": "OFFLINE"}
-    rows = _parallel(probe, list(config.ZONES))
-    return {"zones": rows, "total": sum(r["flex_bays"] or 0 for r in rows)}
-
-
-@app.post("/api/demo/snapshot")
-def demo_snapshot(amount: int = 3, delay_ms: int = 3000, src: str = "auto", dst: str = "auto", initiator: str = "A"):
-    flex = {z["node_id"]: z["flex_bays"] for z in flex_state()["zones"]}
-    if any(v is None for v in flex.values()):
-        return {"success": False, "message": "all three zones must be online for the snapshot demo"}
-    expected_total = sum(flex.values())
-    by_node = {cfg["node_id"]: key for key, cfg in config.ZONES.items()}
-    if src == "auto":
-        src_node = max(flex, key=flex.get)
-    else:
-        src_node = config.ZONES[src.upper()]["node_id"]
-    if dst == "auto":
-        dst_node = min((n for n in flex if n != src_node), key=flex.get)
-    else:
-        dst_node = config.ZONES[dst.upper()]["node_id"]
-    initiator_key = initiator.upper() if initiator.upper() in config.ZONES else "A"
-    snapshot_id = f"SNAP-{int(time.time()) % 100000}"
-
-    try:
-        ack = zone_stub_for(by_node[src_node]).StartTransfer(
-            parking_pb2.StartTransferRequest(to_node=dst_node, amount=amount, delay_ms=delay_ms), timeout=5)
-    except grpc.RpcError as exc:
-        return _error(exc)
-    if not ack.success:
-        return {"success": False, "message": ack.message}
-
-    time.sleep(0.4)  # the transfer is now in flight
-    naive = flex_state()
-    try:
-        zone_stub_for(initiator_key).StartSnapshot(parking_pb2.StartSnapshotRequest(snapshot_id=snapshot_id), timeout=5)
-    except grpc.RpcError as exc:
-        return _error(exc)
-
-    deadline = time.time() + delay_ms / 1000.0 + 15
-    snaps = {}
-    while time.time() < deadline:
-        snaps = {}
-        for key in config.ZONES:
-            try:
-                snaps[key] = zone_stub_for(key).GetSnapshot(parking_pb2.GetSnapshotRequest(snapshot_id=snapshot_id), timeout=2)
-            except grpc.RpcError:
-                snaps[key] = None
-        if all(s is not None and s.known and s.complete for s in snaps.values()):
-            break
-        time.sleep(0.3)
-
-    nodes, in_flight_total, recorded_total = [], 0, 0
-    for key, s in snaps.items():
-        if s is None:
-            nodes.append({"node_id": config.ZONES[key]["node_id"], "complete": False})
-            continue
-        channels = [{"from": c.from_node, "to": s.node_id, "in_flight": list(c.in_flight)} for c in s.channels]
-        in_flight = sum(sum(c["in_flight"]) for c in channels)
-        recorded_total += s.recorded_flex
-        in_flight_total += in_flight
-        nodes.append({"node_id": s.node_id, "complete": s.complete, "recorded_flex": s.recorded_flex,
-                      "channels": channels, "waiting_on": list(s.waiting_on)})
-    return {
-        "success": True, "snapshot_id": snapshot_id, "initiator": config.ZONES[initiator_key]["node_id"],
-        "transfer": {"from": src_node, "to": dst_node, "amount": amount, "delay_ms": delay_ms},
-        "before": flex, "naive_reading": {z["node_id"]: z["flex_bays"] for z in naive["zones"]}, "naive_total": naive["total"],
-        "recorded_total": recorded_total, "in_flight_total": in_flight_total,
-        "snapshot_total": recorded_total + in_flight_total, "expected_total": expected_total,
-        "consistent": recorded_total + in_flight_total == expected_total, "nodes": nodes,
+        "results": sorted(rows, key=lambda x: x["node_id"]), "overlaps": overlaps,
+        "entry_order": [row["node_id"] for row in sorted(good, key=lambda x: x["entered_at"])],
+        "any_overlap": any(o["overlap_ms"] > 0 for o in overlaps),
     }
 
 

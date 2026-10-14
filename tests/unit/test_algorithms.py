@@ -8,15 +8,13 @@ import time
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
-from distributed.berkeley import berkeley_adjustments, estimate_remote_diff
-from distributed.clocks import LamportClock, ProcessClock, compare_vc
+from distributed.clocks import LamportClock
 from distributed.election import BullyElection
 from distributed.ledger import Ledger, make_block
-from distributed.mutex import RicartAgrawala
-from distributed.snapshot import ChandyLamport, FifoChannel
+from distributed.mutex import WANTED, RicartAgrawala
 
 
-# ---- clocks -----------------------------------------------------------------
+# ---- Lamport clock ----------------------------------------------------------
 
 def test_lamport_receive_jumps_past_sender():
     a, b = LamportClock(), LamportClock()
@@ -25,39 +23,6 @@ def test_lamport_receive_jumps_past_sender():
     sent = a.tick()  # a = 3
     assert b.update(sent) == 4
     assert b.tick() == 5
-
-
-def test_vector_clock_detects_concurrency():
-    a, b, c = ProcessClock("A"), ProcessClock("B"), ProcessClock("C")
-    _, va = a.local_event()
-    _, vb = b.local_event()
-    assert compare_vc(va, vb) == "concurrent"
-
-    lam, vsend = a.on_send()
-    _, vc = c.on_receive(lam, vsend)
-    assert compare_vc(va, vc) == "before"
-    assert compare_vc(vc, va) == "after"
-    assert compare_vc(vc, vb) == "concurrent"
-
-
-# ---- berkeley ---------------------------------------------------------------
-
-def test_berkeley_brings_all_clocks_to_the_average():
-    offsets = {"M": 0.0, "A": 2.0, "B": -1.0}  # clock error vs master
-    adj = berkeley_adjustments({"A": 2.0, "B": -1.0}, master="M")
-    corrected = {n: offsets[n] + adj[n] for n in offsets}
-    assert len({round(v, 9) for v in corrected.values()}) == 1
-    assert abs(corrected["M"] - 1.0 / 3.0) < 1e-9
-
-
-def test_berkeley_ignores_outlier_in_average():
-    adj = berkeley_adjustments({"A": 0.1, "B": -0.1, "BAD": 500.0}, master="M", outlier_threshold=5.0)
-    assert abs(adj["M"]) < 1e-9
-    assert adj["BAD"] < -499
-
-
-def test_cristian_estimate_compensates_half_rtt():
-    assert abs(estimate_remote_diff(100.0, 10.0, 10.2, 10.2) - (100.1 - 10.2)) < 1e-9
 
 
 # ---- ledger -----------------------------------------------------------------
@@ -132,53 +97,17 @@ def test_ricart_agrawala_survives_a_dead_peer():
         pass
 
 
-# ---- Chandy-Lamport ---------------------------------------------------------
+def test_ricart_agrawala_earlier_lamport_timestamp_has_priority():
+    a = RicartAgrawala("A", ["B"], send_request=lambda *_: True)
+    a.state, a.my_ts = WANTED, 5             # A is waiting to enter, its REQUEST stamped at Lamport time 5
 
-class _Bank:
-    """Three nodes passing 'money' over delayed FIFO channels; total must stay 30."""
+    assert a.on_request("B", 3) is True      # B asked earlier (3 < 5): A replies at once
 
-    def __init__(self, names, start=10):
-        self.names = names
-        self.balance = {n: start for n in names}
-        self.cl: dict[str, ChandyLamport] = {}
-        self.chan: dict[tuple[str, str], FifoChannel] = {}
-        for n in names:
-            peers = [p for p in names if p != n]
-            self.cl[n] = ChandyLamport(n, peers, lambda n=n: self.balance[n], lambda p, sid, n=n: self.chan[(n, p)].post("marker", sid))
-            for p in peers:
-                self.chan[(n, p)] = FifoChannel(f"{n}->{p}", lambda kind, payload, n=n, p=p: self._deliver(n, p, kind, payload))
-
-    def _deliver(self, src, dst, kind, payload):
-        cl = self.cl[dst]
-        if kind == "marker":
-            cl.on_marker(payload, src)
-        else:
-            with cl.lock:
-                self.balance[dst] += payload
-                cl.on_message(src, payload)
-
-    def transfer(self, src, dst, amount, delay):
-        with self.cl[src].lock:
-            self.balance[src] -= amount
-            self.chan[(src, dst)].post("transfer", amount, delay)
-
-
-def test_chandy_lamport_captures_in_flight_money():
-    bank = _Bank(["A", "B", "C"])
-    bank.transfer("B", "C", 3, delay=0.6)   # in flight when the snapshot starts
-    time.sleep(0.1)
-    bank.cl["A"].initiate("s1")
-    deadline = time.time() + 5
-    while time.time() < deadline and not all((bank.cl[n].get("s1") or {}).get("complete") for n in bank.names):
-        time.sleep(0.05)
-
-    snaps = [bank.cl[n].get("s1") for n in bank.names]
-    assert all(s and s["complete"] for s in snaps)
-    in_flight = sum(sum(msgs) for s in snaps for msgs in s["channels"].values())
-    recorded = sum(s["state"] for s in snaps)
-    assert in_flight == 3                  # the transfer was caught on channel B->C
-    assert recorded == 27                  # naive sum of local states is wrong...
-    assert recorded + in_flight == 30      # ...the snapshot is consistent
+    replied = threading.Event()
+    threading.Thread(target=lambda: (a.on_request("B", 7), replied.set()), daemon=True).start()
+    assert not replied.wait(0.3)             # B asked later (7 > 5): A defers its reply...
+    a.release()
+    assert replied.wait(2)                   # ...and sends it when it leaves
 
 
 # ---- Bully election ---------------------------------------------------------

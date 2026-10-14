@@ -58,23 +58,17 @@ BEACON_INTERVAL_SEC = 1.0   # leader -> replicas
 BEACON_TIMEOUT_SEC = 4.0    # followers start an election after this much silence
 ELECTION_ANNOUNCE_WAIT_SEC = 2.5
 
-# ---- Simulated physical-clock skew (seconds) for the clock-sync demo -------------
-CLOCK_SKEW = {
-    "ZONE_A": 2.3, "ZONE_B": -1.7, "ZONE_C": 0.6,
-    "COORD_1": 0.4, "COORD_2": -0.9, "COORD_3": 1.1,
-}
-
-# ---- Shared overflow lot (mutual-exclusion demo) ---------------------------------
+# ---- Shared overflow lot (Ricart-Agrawala mutual exclusion) ----------------------
+# One lot shared by all three zones, used when every zone is full. Any zone can
+# admit a car to it, so its free-slot counter is a shared resource.
+OVERFLOW_CAPACITY = 5
 OVERFLOW_KEY = "overflow:free_slots"
-OVERFLOW_BOOKINGS_KEY = "overflow:bookings"
+OVERFLOW_BOOKINGS_KEY = "overflow:bookings"   # hash: booking id -> zone that admitted it
 
 # ---- Load balancing ----------------------------------------------------------------
 POLICY_KEY = "config:allocation_policy"
 DEFAULT_POLICY = "least_loaded"
 POLICIES = ("first_fit", "round_robin", "least_loaded")
-
-# ---- Flexible bays that zones can lend each other (Chandy-Lamport demo) ------------
-FLEX_BAYS_PER_ZONE = 10
 
 
 def coordinator_ids() -> list[int]:

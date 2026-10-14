@@ -1,8 +1,6 @@
 // Renders every event exactly as it arrived off the Redis Streams -> WebSocket
 // pipeline, tagged by which mechanism produced it. Events published by the
-// coordinators and zones also carry a Lamport timestamp (L) and vector clock.
-
-import { fmtVC } from '../hooks'
+// coordinators and zones also carry a Lamport timestamp (L).
 
 function formatTime(iso) {
   if (!iso) return ''
@@ -11,9 +9,7 @@ function formatTime(iso) {
 
 const GROUPS = {
   ELECTION: ['LEADER_ELECTED', 'LEADER_LOST'],
-  CLOCK: ['CLOCKS_SYNCED'],
-  MUTEX: ['OVERFLOW_BOOKED', 'OVERFLOW_REJECTED'],
-  SNAPSHOT: ['SNAPSHOT_STARTED', 'FLEX_SENT', 'FLEX_RECEIVED'],
+  MUTEX: ['OVERFLOW_BOOKED', 'OVERFLOW_REJECTED', 'OVERFLOW_RELEASED'],
   LEDGER: ['LEDGER_COMMITTED', 'LEDGER_COMMIT_FAILED', 'LEDGER_TAMPERED', 'LEDGER_REPAIRED'],
   BALANCE: ['POLICY_CHANGED'],
 }
@@ -51,7 +47,7 @@ export default function EventLog({ events, limit = 30, showClocks = false, filte
             <span className={`comm-tag ${cls}`}>{tag}</span>
             <span className="event-type">{text}</span>
             {showClocks && e.lamport != null && (
-              <span className="event-clock" title={fmtVC(e.vclock)}>L={e.lamport}</span>
+              <span className="event-clock">L={e.lamport}</span>
             )}
             <span className="event-time">{formatTime(e.timestamp)}</span>
           </div>

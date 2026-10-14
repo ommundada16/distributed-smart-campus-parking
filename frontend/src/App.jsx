@@ -2,24 +2,20 @@ import { useEffect, useState } from 'react'
 import { connectEventStream, getRecentEvents, getSystemStatus } from './api'
 import Overview from './tabs/Overview'
 import Coordination from './tabs/Coordination'
-import Clocks from './tabs/Clocks'
 import Mutex from './tabs/Mutex'
-import Snapshot from './tabs/Snapshot'
 import Ledger from './tabs/Ledger'
 import LoadBalancing from './tabs/LoadBalancing'
 import Cloud from './tabs/Cloud'
 
 const STATUS_TRIGGERING_EVENTS = new Set([
   'NODE_REGISTERED', 'NODE_FAILED', 'NODE_RECOVERED', 'PARKING_RESERVED', 'PARKING_RELEASED',
-  'SLOT_STATUS_CHANGED', 'LEADER_ELECTED', 'FLEX_RECEIVED',
+  'SLOT_STATUS_CHANGED', 'LEADER_ELECTED',
 ])
 
 const TABS = [
   { id: 'overview', label: 'Overview', unit: 'FA-1' },
   { id: 'coordination', label: 'Leader Election', unit: 'Unit 3' },
-  { id: 'clocks', label: 'Clocks', unit: 'Unit 3' },
   { id: 'mutex', label: 'Mutual Exclusion', unit: 'Unit 3' },
-  { id: 'snapshot', label: 'Global Snapshot', unit: 'Unit 3' },
   { id: 'ledger', label: 'Ledger', unit: 'Unit 4' },
   { id: 'balance', label: 'Load Balancing', unit: 'Units 1/4' },
   { id: 'cloud', label: 'Cloud & Deployment', unit: 'Unit 4' },
@@ -96,9 +92,7 @@ export default function App() {
 
       {tab === 'overview' && <Overview systemStatus={systemStatus} events={events} refreshStatus={refreshStatus} />}
       {tab === 'coordination' && <Coordination events={events} />}
-      {tab === 'clocks' && <Clocks events={events} />}
       {tab === 'mutex' && <Mutex />}
-      {tab === 'snapshot' && <Snapshot />}
       {tab === 'ledger' && <Ledger />}
       {tab === 'balance' && <LoadBalancing />}
       {tab === 'cloud' && <Cloud systemStatus={systemStatus} />}

@@ -14,7 +14,6 @@ service Coordinator {
   rpc FindParking (FindParkingRequest) returns (FindParkingResponse);
   rpc ReleaseParking (ReleaseParkingRequest) returns (ReleaseParkingResponse);
   rpc GetSystemStatus (SystemStatusRequest) returns (SystemStatusResponse);
-  rpc SyncClocks (Empty) returns (SyncClocksResponse);            // Berkeley algorithm
 
   // Bully election + leader beacon (replica <-> replica)
   rpc Election (ElectionRequest) returns (ElectionResponse);
@@ -23,8 +22,6 @@ service Coordinator {
 
   // Any replica answers these
   rpc WhoIsLeader (Empty) returns (LeaderInfo);
-  rpc GetClockInfo (Empty) returns (ClockInfo);
-  rpc AdjustClock (AdjustClockRequest) returns (ClockInfo);
   rpc SetFailureMode (SetFailureModeRequest) returns (SetFailureModeResponse);
 }
 
@@ -36,20 +33,10 @@ service ZoneService {
   rpc ReleaseSlot (ReleaseSlotRequest) returns (ReleaseSlotResponse);
   rpc SetFailureMode (SetFailureModeRequest) returns (SetFailureModeResponse);
 
-  // Clocks / Berkeley
-  rpc GetClockInfo (Empty) returns (ClockInfo);
-  rpc AdjustClock (AdjustClockRequest) returns (ClockInfo);
-
   // Ricart-Agrawala mutual exclusion over the shared overflow lot
   rpc OverflowBook (OverflowBookRequest) returns (OverflowBookResponse);
+  rpc OverflowRelease (OverflowReleaseRequest) returns (Ack);
   rpc RequestCS (RaRequest) returns (RaReply);                     // peer -> peer
-
-  // Chandy-Lamport snapshot over the flexible-bay transfers
-  rpc StartTransfer (StartTransferRequest) returns (Ack);          // admin: begin a delayed transfer
-  rpc TransferFlex (TransferRequest) returns (Ack);                // peer -> peer application message
-  rpc Marker (MarkerRequest) returns (Ack);                        // peer -> peer snapshot marker
-  rpc StartSnapshot (StartSnapshotRequest) returns (Ack);
-  rpc GetSnapshot (GetSnapshotRequest) returns (SnapshotResponse);
 
   // Replicated hash-chained ledger
   rpc AppendBlock (AppendBlockRequest) returns (AppendBlockResponse);
@@ -99,8 +86,7 @@ message ZoneStatusResponse {
   int32 occupied_slots = 5;
   int32 reserved_slots = 6;
   string status = 7;
-  int32 flex_bays = 8;
-  int32 ledger_length = 9;
+  int32 ledger_length = 8;
 }
 
 message AvailableSlotsRequest {}
@@ -173,8 +159,7 @@ message NodeInfo {
   int32 available_slots = 8;
   int32 occupied_slots = 9;
   int32 reserved_slots = 10;
-  int32 flex_bays = 11;
-  int32 ledger_length = 12;
+  int32 ledger_length = 11;
 }
 
 message SystemStatusResponse {
@@ -210,35 +195,6 @@ message LeaderInfo {
   int32 port = 7;
 }
 
-// ---------- clocks ----------
-message ClockInfo {
-  string node_id = 1;
-  int64 lamport = 2;
-  string vclock_json = 3;
-  double physical_time = 4;
-  double offset = 5;        // this node's skew from true time, seconds
-}
-
-message AdjustClockRequest {
-  double delta = 1;
-  bool absolute = 2;        // true: set offset to `delta` instead of adding
-}
-
-message ClockRow {
-  string node_id = 1;
-  double offset_before = 2;
-  double adjustment = 3;
-  double offset_after = 4;
-  double rtt_ms = 5;
-}
-
-message SyncClocksResponse {
-  bool success = 1;
-  string method = 2;
-  repeated ClockRow rows = 3;
-  string message = 4;
-}
-
 // ---------- mutual exclusion ----------
 message OverflowBookRequest {
   bool use_mutex = 1;
@@ -251,12 +207,13 @@ message OverflowBookResponse {
   string message = 2;
   string node_id = 3;
   int32 saw_free = 4;
-  int64 lamport = 5;
-  string vclock_json = 6;
-  double entered_at = 7;
-  double exited_at = 8;
-  repeated string trace = 9;
+  int64 request_ts = 5;     // Lamport timestamp of this zone's REQUEST (0 when run without the mutex)
+  double entered_at = 6;
+  double exited_at = 7;
+  repeated string trace = 8;
 }
+
+message OverflowReleaseRequest { string booking_id = 1; }
 
 message RaRequest {
   string resource = 1;
@@ -265,41 +222,6 @@ message RaRequest {
 }
 
 message RaReply { bool granted = 1; }
-
-// ---------- snapshot ----------
-message StartTransferRequest {
-  string to_node = 1;
-  int32 amount = 2;
-  int32 delay_ms = 3;
-}
-
-message TransferRequest {
-  string transfer_id = 1;
-  string from_node = 2;
-  int32 amount = 3;
-}
-
-message MarkerRequest {
-  string snapshot_id = 1;
-  string from_node = 2;
-}
-
-message StartSnapshotRequest { string snapshot_id = 1; }
-message GetSnapshotRequest { string snapshot_id = 1; }
-
-message ChannelState {
-  string from_node = 1;
-  repeated int32 in_flight = 2;
-}
-
-message SnapshotResponse {
-  string node_id = 1;
-  bool known = 2;
-  bool complete = 3;
-  int32 recorded_flex = 4;
-  repeated ChannelState channels = 5;
-  repeated string waiting_on = 6;
-}
 
 // ---------- ledger ----------
 message AppendBlockRequest { string block_json = 1; }

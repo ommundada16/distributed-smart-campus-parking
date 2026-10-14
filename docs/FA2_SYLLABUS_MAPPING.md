@@ -21,32 +21,43 @@ Legend: ✅ implemented and demonstrable · 🔶 modelled locally (same concepts
 | Topic | Status | Where |
 |---|---|---|
 | RPC | ✅ | gRPC: `proto/parking.proto`; zone, coordinator and election calls |
-| Message-oriented communication | ✅ | Redis Streams event bus: `communication/messaging/message_bus.py` (events now carry logical clocks) |
+| Message-oriented communication | ✅ | Redis Streams event bus: `communication/messaging/message_bus.py` (events now carry Lamport timestamps) |
 | Stream-oriented communication | ✅ | WebSocket fan-out to the browser: `communication/websocket/` |
-| P2P messaging | ✅ | Zone↔zone TCP (FA-1 capacity polling) **plus** zone↔zone gRPC for mutual exclusion, snapshot markers and ledger sync |
+| P2P messaging | ✅ | Zone↔zone TCP (FA-1 capacity polling) **plus** zone↔zone gRPC for mutual exclusion and ledger sync |
 | WebRTC | 📘 | Not used (browser↔browser media); the WebSocket path covers browser push |
 | *Self-study:* names, identifiers, addresses | ✅ | Replicas are found by **name** (`COORD_n`), resolved through `config.py`; `WhoIsLeader` maps "the leader" to an address. Reservation IDs encode the zone (`RES-B-3F6D0212`) so any coordinator can route a release with no lookup table |
 | *Self-study:* fault tolerance | ✅ | Heartbeats, simulated zone crash, leader failover, ledger catch-up. **UI: Overview, Leader Election, Ledger** |
 
 ## Unit 3 — Synchronization (new)
 
+We implemented only what the system needs, and say why for the rest (see "Why only these" below).
+
 | Topic | Status | Code | UI tab · demo |
 |---|---|---|---|
-| Clock synchronization | ✅ | `distributed/berkeley.py`, `SyncClocks` in `services/coordinator/server.py` | **Clocks** → "Synchronise clocks (Berkeley)": six clocks seeded ±2 s collapse to within a few ms |
-| Logical clocks — Lamport | ✅ | `distributed/clocks.py`; `communication/grpc/clock_interceptors.py` | **Clocks** → every event shows `L=`; sort by Lamport vs wall clock |
-| Vector algorithm | ✅ | same | **Clocks** → click two events: "happened-before" vs "concurrent". **Mutual Exclusion** shows pairs concurrent without the lock, ordered with it |
-| Global state | ✅ | `distributed/snapshot.py` (Chandy-Lamport) + `services/zone/zone_service.py` | **Global Snapshot** → total is 30 only if in-flight bays are counted |
 | Election algorithms | ✅ | `distributed/election.py` (Bully) | **Leader Election** → Kill the leader, a new one is elected (≈4–5 s), Recover → it takes over again |
-| Mutual exclusion | ✅ | `distributed/mutex.py` (Ricart-Agrawala) | **Mutual Exclusion** → overbooking without it, none with it |
 | Beacon protocol | ✅ | `BullyElection._monitor` / `Beacon` RPC: leader beacon every 1 s, silence of 4 s triggers election; beacons carry a *term* so a stale leader steps down | **Leader Election** timeline |
+| Mutual exclusion | ✅ | `distributed/mutex.py` (Ricart-Agrawala), used by `OverflowBook` / `OverflowRelease` in `services/zone/zone_service.py`. The coordinator falls back to the shared overflow lot when every zone is full | **Mutual Exclusion** → overbooking without it, none with it; the real lot's bookings are listed on the same tab |
+| Logical clocks — Lamport | ✅ | `distributed/clocks.py`; carried on every gRPC call by `communication/grpc/clock_interceptors.py` | **Mutual Exclusion** → each zone's REQUEST timestamp decides the entry order; every event shows `L=` |
+| Clock synchronization (Cristian, Berkeley, NTP) | 📘 | Not implemented — no decision in the system depends on wall-clock time | — |
+| Vector algorithm | 📘 | Not implemented — no decision depends on telling concurrent events apart | — |
+| Global state | 📘 | Not implemented — nothing in the system needs a consistent global view | — |
 | *Self-study:* Lodha–Kshemkalyani fair mutual exclusion | 📘 | See notes below | — |
 | *Self-study:* Knapp's classification of distributed deadlock detection | 📘 | See notes below | — |
+
+### Why only these
+
+* **Election + beacon** — every booking goes through the leader; without an election the coordinator is a single point of failure.
+* **Ricart-Agrawala** — the overflow lot is shared by all three zones and any of them can admit a car to it, so its free-slot counter needs mutual exclusion across nodes.
+* **Lamport clock** — Ricart-Agrawala orders competing requests by (Lamport timestamp, node id). It is the one clock the system needs.
+* **No physical clock sync** — timeouts are measured locally on each node and nothing compares wall-clock times across nodes.
+* **No vector clocks** — nothing has to detect concurrent updates: each slot is owned by one zone and the overflow lot is protected by the mutex.
+* **No snapshot** — no feature needs a consistent global state.
 
 ### Self-study notes (Unit 3)
 
 **Fairness in mutual exclusion.** Ricart-Agrawala already serves requests in (Lamport timestamp, node id) order, which gives FIFO-like fairness. The Lodha–Kshemkalyani algorithm (*"A fair distributed mutual exclusion algorithm"*, IEEE TPDS, 2000) keeps fairness defined by the *happened-before* order and reduces the message cost compared with Ricart-Agrawala. Compare in the viva: our `RicartAgrawala` costs 2(N−1) messages per entry; the demo's message trace shows each of those messages. *(Check the exact message-complexity figures against the paper before quoting them.)*
 
-**Deadlock detection (Knapp).** Distributed deadlock detection algorithms are classified as: *path-pushing* (wait-for paths are forwarded between sites), *edge-chasing* (probe messages follow wait-for edges; a probe returning to its initiator proves a cycle — Chandy-Misra-Haas), *diffusing computation* (query/reply waves), and *global-state-based* (take a consistent snapshot and look for cycles). Relation to this project: our snapshot module is exactly the building block for the global-state class. Our Ricart-Agrawala has no deadlock because requests are totally ordered by timestamp, so the wait-for graph can never contain a cycle.
+**Deadlock detection (Knapp).** Distributed deadlock detection algorithms are classified as: *path-pushing* (wait-for paths are forwarded between sites), *edge-chasing* (probe messages follow wait-for edges; a probe returning to its initiator proves a cycle — Chandy-Misra-Haas), *diffusing computation* (query/reply waves), and *global-state-based* (take a consistent snapshot, e.g. with Chandy-Lamport, and look for cycles). Relation to this project: our Ricart-Agrawala has no deadlock because requests are totally ordered by timestamp, so the wait-for graph can never contain a cycle.
 
 ## Unit 4 — Emerging Distributed Paradigms (new)
 

@@ -1,10 +1,10 @@
-"""gRPC middleware that carries logical clocks on every call (Unit 3: Lamport's
-and Vector algorithms).
+"""gRPC middleware that carries the Lamport clock on every call (Unit 3:
+Lamport's algorithm).
 
-The client interceptor ticks the caller's clocks and attaches them as call
-metadata; the server interceptor merges them on receipt and returns its own
-clocks in the trailing metadata, which the client merges when the reply
-arrives. Application code never touches a clock for ordinary RPCs - the
+The client interceptor ticks the caller's clock and attaches it as call
+metadata; the server interceptor merges it on receipt and returns its own
+clock in the trailing metadata, which the client merges when the reply
+arrives. Application code never touches the clock for ordinary RPCs - the
 middleware does it, which is exactly the role middleware plays in Unit 1.
 """
 
@@ -15,7 +15,6 @@ import grpc
 from distributed import clocks
 
 LAMPORT_KEY = "x-lamport"
-VCLOCK_KEY = "x-vclock"
 
 
 class _ClientCallDetails(
@@ -27,13 +26,12 @@ class _ClientCallDetails(
 
 class ClientClockInterceptor(grpc.UnaryUnaryClientInterceptor):
     def intercept_unary_unary(self, continuation, client_call_details, request):
-        pc = clocks.get_process_clock()
-        if pc is None:
+        clock = clocks.get_clock()
+        if clock is None:
             return continuation(client_call_details, request)
 
-        lamport, vc = pc.on_send()
         metadata = list(client_call_details.metadata or [])
-        metadata += [(LAMPORT_KEY, str(lamport)), (VCLOCK_KEY, clocks.encode_vc(vc))]
+        metadata.append((LAMPORT_KEY, str(clock.tick())))
         details = _ClientCallDetails(
             client_call_details.method, client_call_details.timeout, metadata,
             client_call_details.credentials, getattr(client_call_details, "wait_for_ready", None),
@@ -43,7 +41,7 @@ class ClientClockInterceptor(grpc.UnaryUnaryClientInterceptor):
         try:
             trailing = dict(call.trailing_metadata() or [])
             if LAMPORT_KEY in trailing:
-                pc.on_receive(int(trailing[LAMPORT_KEY]), clocks.decode_vc(trailing.get(VCLOCK_KEY)))
+                clock.update(int(trailing[LAMPORT_KEY]))
         except Exception:
             pass
         return call
@@ -58,18 +56,17 @@ class ServerClockInterceptor(grpc.ServerInterceptor):
         inner = handler.unary_unary
 
         def wrapper(request, context):
-            pc = clocks.get_process_clock()
-            if pc is not None:
+            clock = clocks.get_clock()
+            if clock is not None:
                 md = dict(context.invocation_metadata())
                 if LAMPORT_KEY in md:
-                    pc.on_receive(int(md[LAMPORT_KEY]), clocks.decode_vc(md.get(VCLOCK_KEY)))
+                    clock.update(int(md[LAMPORT_KEY]))
             try:
                 return inner(request, context)
             finally:
-                if pc is not None:
+                if clock is not None:
                     try:
-                        lamport, vc = pc.on_send()
-                        context.set_trailing_metadata(((LAMPORT_KEY, str(lamport)), (VCLOCK_KEY, clocks.encode_vc(vc))))
+                        context.set_trailing_metadata(((LAMPORT_KEY, str(clock.tick())),))
                     except Exception:
                         pass
 
