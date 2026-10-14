@@ -26,10 +26,21 @@ B.Tech Distributed Systems project, built in two phases:
 
 ## Architecture
 
+```mermaid
+flowchart LR
+    B["Browser"] --> W["Nginx<br/>load balancer + edge cache"]
+    W --> G["2 x gateway<br/>stateless"]
+    G --> C["3 x coordinator<br/>Bully election, 1 leader"]
+    C --> Z["3 x zone<br/>slots + ledger replica"]
+    Z <-->|"Ricart-Agrawala<br/>Lamport clock"| Z
+    C --> F["FaaS<br/>pricing"]
+    G --> A["MapReduce<br/>analytics"]
+    C -.-> R[("Redis<br/>events, overflow counter")]
+    Z -.-> R
+    R -.->|"WebSocket"| B
 ```
-Browser → Nginx (round-robin LB, edge cache, UI) → gateway-1/2 → elected coordinator (1 of 3)
-        → zone A / B / C  ⇄  zone-to-zone gRPC/TCP     Redis Streams (events) · FaaS · MapReduce
-```
+
+The full component diagram, a booking sequence diagram (including the overflow-lot path), the server inventory and the design decisions are in [`docs/FA2_ARCHITECTURE.md`](docs/FA2_ARCHITECTURE.md).
 
 ## Run it
 

@@ -15,27 +15,91 @@ A campus parking system whose parts run on different nodes that can fail indepen
 
 ## 2. Component view
 
-```
-                         Browser (React)
-                              │  HTTP + WebSocket
-                    ┌─────────▼─────────┐
-                    │   web  (Nginx)    │  round-robin LB · edge cache · static UI
-                    └───────┬─────┬─────┘
-                  ┌─────────▼┐   ┌▼─────────┐
-                  │gateway-1 │   │gateway-2 │  stateless FastAPI, find the leader by name
-                  └────┬─────┘   └─────┬────┘
-                       └──────┬────────┘            gRPC (clock-stamped)
-         ┌────────────────────▼────────────────────┐
-         │  coord-1 ◄──── Bully election ────► coord-3 (LEADER) ◄──► coord-2  │  beacon every 1 s
-         └───────┬───────────────┬───────────────┬──┘
-                 │ gRPC          │ gRPC          │ gRPC               ┌────────────┐
-            ┌────▼───┐      ┌────▼───┐      ┌────▼───┐   HTTP        │ faas       │ pricing / receipt
-            │ zone-a │◄────►│ zone-b │◄────►│ zone-c │◄─────────────►│ (serverless)│
-            └────────┘ P2P  └────────┘ P2P  └────────┘               └────────────┘
-              ▲  ledger replica · Ricart-Agrawala over the overflow lot
+```mermaid
+flowchart TB
+    browser["Browser - React dashboard"]
+    web["web - Nginx<br/>round-robin load balancer, edge cache"]
+    gw["gateway-1 and gateway-2<br/>stateless FastAPI"]
 
-   redis  ── Streams event bus (every node publishes, gateways relay to WebSocket) + shared config
-   analytics ── MapReduce worker pool, reads booking history from the zones' ledger
+    subgraph coord["Coordinator replicas - Bully election, leader beacon every 1 s"]
+        direction LR
+        c1["coord-1<br/>standby"]
+        c2["coord-2<br/>standby"]
+        c3["coord-3<br/>LEADER"]
+    end
+
+    subgraph zones["Zones - own the slots, hold a ledger replica"]
+        direction LR
+        za["zone-a"]
+        zb["zone-b"]
+        zc["zone-c"]
+    end
+
+    faas["faas<br/>serverless: pricing, receipt"]
+    ana["analytics<br/>MapReduce workers"]
+    redis[("redis<br/>event stream, overflow counter, policy")]
+
+    browser -->|"HTTP"| web
+    web --> gw
+    gw -->|"gRPC to the leader<br/>found with WhoIsLeader"| c3
+    c1 <-->|"ELECTION, ANNOUNCE, BEACON"| c3
+    c2 <-->|"ELECTION, ANNOUNCE, BEACON"| c3
+    c3 -->|"gRPC: reserve, release, status<br/>AppendBlock, commit on 2 of 3"| zb
+    za <-->|"Ricart-Agrawala REQUEST and REPLY<br/>stamped with the Lamport clock"| zb
+    zb <--> zc
+    za <--> zc
+    c3 -->|"HTTP: price quote"| faas
+    gw -->|"HTTP: receipt"| faas
+    gw -->|"HTTP: run job"| ana
+    ana -->|"gRPC: read ledger"| zb
+    c3 -.->|"publish events"| redis
+    zb -.->|"overflow lot, events"| redis
+    gw -.->|"read event stream, push to browser by WebSocket"| redis
+```
+
+How to read it:
+
+* **Control path (solid, top to bottom):** browser → Nginx → one of two gateways → the *current* coordinator leader → zones. Gateways and zones find the leader by asking any replica `WhoIsLeader`, so a failover needs no reconfiguration.
+* **Zone ↔ zone traffic:** only the Ricart-Agrawala messages that guard the shared overflow lot (plus ledger catch-up and the FA-1 P2P capacity polling). Each message carries a Lamport timestamp.
+* **Redis plays three roles:** event stream (relayed to the browser over WebSocket), the shared overflow counter, and the allocation-policy setting.
+* **Ledger:** the leader sends every booking block to all zones and treats it as committed when two of three accept.
+
+### Booking flow, including the overflow lot
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant B as Browser
+    participant N as Nginx
+    participant G as Gateway
+    participant L as Coordinator leader
+    participant Z as Zones A / B / C
+    participant F as FaaS
+    participant R as Redis
+
+    B->>N: POST /api/parking/find
+    N->>G: round-robin to gateway-1 or gateway-2
+    G->>L: FindParking (leader located via WhoIsLeader)
+    L->>Z: GetZoneStatus, in parallel
+    L->>L: allocation policy picks a zone (first fit, round robin or least loaded)
+
+    alt a zone has a free slot
+        L->>Z: ReserveSlot
+    else every zone is full
+        L->>Z: OverflowBook, handed to a zone chosen in rotation
+        Note over Z: Ricart-Agrawala: REQUEST with Lamport timestamp to the other zones,<br/>enter only when all have replied, earlier timestamp wins ties
+        Z->>R: GET free count, validate, SET free count minus one
+        Z-->>L: slot number or lot full
+    end
+
+    L->>Z: AppendBlock to all three zones, committed when 2 of 3 accept
+    L->>F: price quote, cold or warm start
+    L-->>G: reservation, slot, price, ledger block
+    G->>F: receipt
+    G-->>B: result
+    L-)R: publish events with Lamport timestamps
+    R-)G: stream consumer
+    G-)B: WebSocket push
 ```
 
 ## 3. Server inventory and configuration
