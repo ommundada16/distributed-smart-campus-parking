@@ -102,7 +102,6 @@ export default function Overview({ systemStatus, events, refreshStatus }) {
                     <tr><td>Available</td><td>{z.available_slots}</td></tr>
                     <tr><td>Occupied</td><td>{z.occupied_slots}</td></tr>
                     <tr><td>Reserved</td><td>{z.reserved_slots}</td></tr>
-                    <tr><td>Flex bays</td><td>{z.flex_bays}</td></tr>
                     <tr><td>Ledger blocks</td><td>{z.ledger_length}</td></tr>
                   </tbody>
                 </table>
@@ -126,7 +125,8 @@ export default function Overview({ systemStatus, events, refreshStatus }) {
         <h2>Find &amp; Reserve Parking</h2>
         <p className="muted">
           Browser → Nginx → Gateway → <b>elected coordinator</b> → allocation policy → Zone (gRPC) → ledger commit
-          to all zones → serverless price quote.
+          to all zones → serverless price quote. When every zone is full, a zone books the shared overflow lot
+          under Ricart-Agrawala mutual exclusion.
         </p>
         <button onClick={handleFindParking} disabled={finding}>{finding ? 'Searching...' : 'Find Parking'}</button>
 
@@ -186,7 +186,7 @@ export default function Overview({ systemStatus, events, refreshStatus }) {
         <h2>Live Communication Activity</h2>
         <p className="muted">
           RPC calls, P2P exchanges and message-bus events, pushed over WebSocket. <b>L=</b> is the event's
-          Lamport timestamp (hover for its vector clock).
+          Lamport timestamp.
         </p>
         <EventLog events={events} limit={30} showClocks />
       </section>

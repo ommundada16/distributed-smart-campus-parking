@@ -7,9 +7,8 @@ A campus parking system whose parts run on different nodes that can fail indepen
 | Distributed-systems problem | Where it shows up here | Solved by |
 |---|---|---|
 | Single point of failure | One coordinator served everything in FA-1 | 3 replicas + Bully election + beacon |
-| No global clock / ordering | Events from different nodes must be ordered | Lamport + vector clocks; Berkeley sync |
-| Concurrent access to a shared resource | Three zones sell the same overflow slots | Ricart-Agrawala mutual exclusion |
-| No consistent global view | Capacity in transit between zones | Chandy-Lamport snapshot |
+| Concurrent access to a shared resource | When every zone is full, any of the three zones can admit cars to one shared overflow lot | Ricart-Agrawala mutual exclusion |
+| No global clock to order competing requests | Ricart-Agrawala must decide which zone's request came first | Lamport clock |
 | Tamper-evident shared record | Booking history | Hash-chained, majority-committed replicated ledger |
 | Load concentration | First-fit hammered Zone A | Load-aware allocation + request load balancing |
 | Node crash / recovery | Zone or coordinator dies | Heartbeats, re-registration, ledger catch-up, leader rediscovery |
@@ -33,7 +32,7 @@ A campus parking system whose parts run on different nodes that can fail indepen
             ┌────▼───┐      ┌────▼───┐      ┌────▼───┐   HTTP        │ faas       │ pricing / receipt
             │ zone-a │◄────►│ zone-b │◄────►│ zone-c │◄─────────────►│ (serverless)│
             └────────┘ P2P  └────────┘ P2P  └────────┘               └────────────┘
-              ▲  ledger replica · Ricart-Agrawala · Chandy-Lamport · Berkeley slave
+              ▲  ledger replica · Ricart-Agrawala over the overflow lot
 
    redis  ── Streams event bus (every node publishes, gateways relay to WebSocket) + shared config
    analytics ── MapReduce worker pool, reads booking history from the zones' ledger
@@ -48,7 +47,7 @@ A campus parking system whose parts run on different nodes that can fail indepen
 | web | 1 | Nginx load balancer, edge cache, UI | 0.50 | 128 MB | web:80 → host 8080 |
 | gateway-1, gateway-2 | 2 | Stateless API gateway | 0.50 each | 256 MB each | gateway-N:8000 |
 | coord-1, coord-2, coord-3 | 3 | Coordinator replicas (1 leader, 2 standbys) | 0.50 each | 256 MB each | coord-N:510N |
-| zone-a, zone-b, zone-c | 3 | Slot service, mutex, snapshot, ledger replica | 0.25 each | 128 MB each | zone-x:500x (P2P 600x) |
+| zone-a, zone-b, zone-c | 3 | Slot service, overflow-lot mutex, ledger replica | 0.25 each | 128 MB each | zone-x:500x (P2P 600x) |
 | redis | 1 | Event streams + shared config | 0.50 | 128 MB | redis:6379 |
 | faas | 1 | Serverless runtime | 0.25 | 128 MB | faas:9000 |
 | analytics | 1 | MapReduce workers | 1.00 | 512 MB | analytics:9100 |
@@ -62,10 +61,10 @@ Total = 5.5 vCPU limit / 2.5 GB limit (limits, not reservations). Ports differ o
 1. **One elected leader, standbys on hot standby (active–passive).** Only the leader serves parking requests, so allocation decisions are serialised without distributed locking. The price: throughput is bounded by one coordinator; the benefit is simplicity and a short failover (≈ beacon timeout 4 s + election ≈ 0.5 s).
 2. **The leader keeps no irreplaceable state.** Zones own slot state; the ledger is replicated on zones; reservation IDs encode their zone. A new leader rebuilds its registry by probing the zones (`_become_leader_setup`) and reloads the ledger head from the longest valid zone replica.
 3. **Terms.** Every leadership has a monotonically increasing term (as in Raft). Beacons carry it; a leader that receives a higher term steps down. A restarted node first *asks peers for their term* before declaring itself leader (otherwise a freshly restarted high-id node would announce a stale term and be ignored).
-4. **Clocks live in the middleware, not the application.** `ClientClockInterceptor`/`ServerClockInterceptor` attach and merge the Lamport and vector clocks on every gRPC call (request metadata out, trailing metadata back). Application code just calls `stub.Method()`, and every event it publishes is stamped.
+4. **Clocks live in the middleware, not the application.** `ClientClockInterceptor`/`ServerClockInterceptor` attach and merge the Lamport clock on every gRPC call (request metadata out, trailing metadata back). Application code just calls `stub.Method()`, and every event it publishes is stamped.
 5. **Algorithms are separated from transport.** `distributed/*.py` take injected send functions, so they are unit-tested against an in-memory network (`tests/unit/test_algorithms.py`) and wired to gRPC in the services. This is what makes the algorithms demonstrably correct rather than only demonstrably running.
-6. **FIFO channels for the snapshot.** Chandy-Lamport requires ordered channels; each peer link is a queue drained by one sender thread that makes blocking RPCs one at a time, so markers cannot overtake application messages.
-7. **Mutual exclusion over a deliberately weak shared resource.** The overflow lot is a Redis counter updated with plain `GET` then `SET` (not `DECR`), so correctness comes from the algorithm and not from a lucky atomic primitive. A crashed peer is treated as an implicit grant (fault-tolerant variant).
+6. **Mutual exclusion over a deliberately weak shared resource.** The overflow lot is a Redis counter updated with plain `GET` then `SET` (not `DECR`), so correctness comes from the algorithm and not from a lucky atomic primitive. A crashed peer is treated as an implicit grant (fault-tolerant variant). The leader hands each overflow booking to a zone in rotation (like a car arriving at that zone's gate), so different zones really do compete for the lot; a zone runs one Ricart-Agrawala request at a time and queues its own concurrent ones behind a local lock.
+7. **Only the synchronisation the system needs.** One clock (Lamport), because Ricart-Agrawala needs a total order of requests. No physical clock sync (nothing compares wall-clock times across nodes), no vector clocks (nothing must detect concurrent updates), no global snapshot (no feature needs a consistent global view).
 
 ## 5. Consistency and availability trade-offs (CAP / PACELC)
 

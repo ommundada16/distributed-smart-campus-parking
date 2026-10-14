@@ -1,12 +1,9 @@
 """A single parking zone node (FA-2).
 
 One shared implementation, launched three times as three independent processes
-(Zone A / B / C). Besides the FA-1 slot service it now takes part in the
-peer-to-peer distributed algorithms:
+(Zone A / B / C). Besides the FA-1 slot service it now takes part in:
 
   * Ricart-Agrawala mutual exclusion over the shared overflow lot   (Unit 3)
-  * Chandy-Lamport snapshots over flexible-bay transfers             (Unit 3)
-  * Berkeley clock sync (each zone has a deliberately skewed clock)  (Unit 3)
   * a replicated, hash-chained booking ledger                        (Unit 4)
 
 Run standalone:
@@ -33,7 +30,6 @@ from communication.p2p.p2p_client import send_p2p_message, start_p2p_server
 from distributed import clocks
 from distributed.ledger import Block, Ledger
 from distributed.mutex import RicartAgrawala
-from distributed.snapshot import ChandyLamport, FifoChannel
 
 
 class SlotStore:
@@ -99,28 +95,18 @@ class ZoneRuntime:
         self.ledger = Ledger()
         self.ledger_sync_lock = threading.Lock()
 
-        # ---- mutual exclusion
+        # ---- mutual exclusion over the shared overflow lot
         self.trace_lock = threading.Lock()
         self.trace_log: list[tuple[float, str]] = []
         peer_nodes = [c["node_id"] for k, c in config.ZONES.items() if k != zone_key]
         self.peer_nodes = peer_nodes
         self.ra = RicartAgrawala(
             self.node_id, peer_nodes, self._ra_send_request,
-            lamport=clocks.get_process_clock().lamport, trace=self._trace,
+            lamport=clocks.get_clock(), trace=self._trace,
         )
-
-        # ---- snapshot / flexible bays
-        self.flex = config.FLEX_BAYS_PER_ZONE
-        self.channels: dict[str, FifoChannel] = {}
-        self.cl = ChandyLamport(
-            self.node_id, peer_nodes,
-            capture_state=lambda: self.flex,
-            send_marker=lambda peer, sid: self.channels[peer].post("marker", sid),
-        )
-        for peer in peer_nodes:
-            self.channels[peer] = FifoChannel(
-                f"{self.node_id}->{peer}", lambda kind, payload, peer=peer: self._deliver(peer, kind, payload)
-            )
+        # Ricart-Agrawala is one request per node at a time; this local lock queues
+        # this zone's own concurrent requests (gRPC handlers run on a thread pool).
+        self.overflow_local = threading.Lock()
 
     # ---- helpers --------------------------------------------------------
 
@@ -139,15 +125,6 @@ class ZoneRuntime:
     def _ra_send_request(self, peer_node: str, from_id: str, ts: int) -> bool:
         stub = zone_stub_for(config.ZONE_BY_NODE[peer_node])
         return stub.RequestCS(parking_pb2.RaRequest(resource="OVERFLOW", ts=ts, from_node=from_id), timeout=30).granted
-
-    def _deliver(self, peer_node: str, kind: str, payload):
-        """FifoChannel delivery function: runs the blocking RPC to the peer."""
-        stub = zone_stub_for(config.ZONE_BY_NODE[peer_node])
-        if kind == "marker":
-            stub.Marker(parking_pb2.MarkerRequest(snapshot_id=payload, from_node=self.node_id), timeout=10)
-        else:
-            transfer_id, amount = payload
-            stub.TransferFlex(parking_pb2.TransferRequest(transfer_id=transfer_id, from_node=self.node_id, amount=amount), timeout=10)
 
     # ---- ledger sync ----------------------------------------------------
 
@@ -198,8 +175,7 @@ class ZoneServicer(parking_pb2_grpc.ZoneServiceServicer):
         return parking_pb2.ZoneStatusResponse(
             zone_id=self.rt.zone_id, node_id=self.rt.node_id, total_slots=self.rt.total_slots,
             available_slots=counts["AVAILABLE"], occupied_slots=counts["OCCUPIED"],
-            reserved_slots=counts["RESERVED"], status="ONLINE",
-            flex_bays=self.rt.flex, ledger_length=len(self.rt.ledger),
+            reserved_slots=counts["RESERVED"], status="ONLINE", ledger_length=len(self.rt.ledger),
         )
 
     def GetAvailableSlots(self, request, context):
@@ -236,121 +212,70 @@ class ZoneServicer(parking_pb2_grpc.ZoneServiceServicer):
             threading.Thread(target=recover, daemon=True).start()
         return parking_pb2.SetFailureModeResponse(success=True, status=status)
 
-    # --------------------------------------------------------------- clocks
-
-    def _clock_info(self):
-        lamport, vc = clocks.get_process_clock().peek()
-        return parking_pb2.ClockInfo(
-            node_id=self.rt.node_id, lamport=lamport, vclock_json=clocks.encode_vc(vc),
-            physical_time=clocks.physical_clock.now(), offset=clocks.physical_clock.offset,
-        )
-
-    def GetClockInfo(self, request, context):
-        self._check_alive(context)
-        return self._clock_info()
-
-    def AdjustClock(self, request, context):
-        self._check_alive(context)
-        if request.absolute:
-            clocks.physical_clock.set_offset(request.delta)
-        else:
-            clocks.physical_clock.adjust(request.delta)
-        self.rt.log(f"clock adjusted -> offset {clocks.physical_clock.offset:+.3f}s")
-        return self._clock_info()
-
     # ------------------------------------------ Ricart-Agrawala overflow lot
+
+    def _overflow_critical_section(self, use_mutex: bool, work):
+        """Run `work` against the shared overflow counter, under Ricart-Agrawala
+        unless the demo asks to run without it. Returns (work's result, the
+        Lamport timestamp of our REQUEST, or 0 without the mutex)."""
+        rt = self.rt
+        if not use_mutex:
+            rt._trace(f"{rt.node_id}: NO LOCK - entering critical section directly")
+            return work(), 0
+        with rt.overflow_local, rt.ra.critical_section():
+            return work(), rt.ra.my_ts
 
     def OverflowBook(self, request, context):
         self._check_alive(context)
         rt = self.rt
         started = time.time() - 0.05
         redis_client = get_redis_client()
-        use_mutex = request.use_mutex
         hold = max(request.hold_ms, 0) / 1000.0
 
         def critical_work():
             entered = time.time()  # real time, only used to show critical sections never overlap
-            lamport, vc = clocks.get_process_clock().local_event()  # event "enter critical section"
             free = int(redis_client.get(config.OVERFLOW_KEY) or 0)    # read ...
             time.sleep(hold)                                          # ... validate / take payment ...
             if free > 0:
                 redis_client.set(config.OVERFLOW_KEY, free - 1)       # ... write back (lost update if unprotected)
-                redis_client.rpush(config.OVERFLOW_BOOKINGS_KEY, f"{request.booking_id}@{rt.node_id}")
+                redis_client.hset(config.OVERFLOW_BOOKINGS_KEY, request.booking_id, rt.node_id)
                 ok, msg = True, "booked an overflow slot"
             else:
                 ok, msg = False, "overflow lot full"
-            return ok, msg, free, entered, time.time(), lamport, vc
+            return ok, msg, free, entered, time.time()
 
-        if use_mutex:
-            with rt.ra.critical_section():
-                ok, msg, free, entered, exited, lamport, vc = critical_work()
-        else:
-            rt._trace(f"{rt.node_id}: NO LOCK - entering critical section directly")
-            ok, msg, free, entered, exited, lamport, vc = critical_work()
+        (ok, msg, free, entered, exited), request_ts = self._overflow_critical_section(request.use_mutex, critical_work)
 
         publish_event("OVERFLOW_BOOKED" if ok else "OVERFLOW_REJECTED", source=rt.node_id, data={
-            "mutex": use_mutex, "saw_free": free, "booking_id": request.booking_id,
+            "mutex": request.use_mutex, "saw_free": free, "booking_id": request.booking_id,
         })
         return parking_pb2.OverflowBookResponse(
-            success=ok, message=msg, node_id=rt.node_id, saw_free=free, lamport=lamport,
-            vclock_json=clocks.encode_vc(vc), entered_at=entered, exited_at=exited,
-            trace=rt.trace_since(started),
+            success=ok, message=msg, node_id=rt.node_id, saw_free=free, request_ts=request_ts,
+            entered_at=entered, exited_at=exited, trace=rt.trace_since(started),
         )
+
+    def OverflowRelease(self, request, context):
+        """Give an overflow slot back. Also a read-modify-write on the shared
+        counter, so it runs under the same mutual exclusion as booking."""
+        self._check_alive(context)
+        rt = self.rt
+        redis_client = get_redis_client()
+
+        def critical_work():
+            if not redis_client.hdel(config.OVERFLOW_BOOKINGS_KEY, request.booking_id):
+                return False, "unknown or already-released overflow booking"
+            free = int(redis_client.get(config.OVERFLOW_KEY) or 0)
+            redis_client.set(config.OVERFLOW_KEY, free + 1)
+            return True, "released an overflow slot"
+
+        (ok, msg), _ = self._overflow_critical_section(True, critical_work)
+        if ok:
+            publish_event("OVERFLOW_RELEASED", source=rt.node_id, data={"booking_id": request.booking_id})
+        return parking_pb2.Ack(success=ok, message=msg)
 
     def RequestCS(self, request, context):
         self._check_alive(context)
         return parking_pb2.RaReply(granted=self.rt.ra.on_request(request.from_node, request.ts))
-
-    # ------------------------------------------ Chandy-Lamport / flex bays
-
-    def StartTransfer(self, request, context):
-        self._check_alive(context)
-        rt = self.rt
-        if request.to_node not in rt.channels:
-            return parking_pb2.Ack(success=False, message="unknown destination")
-        with rt.cl.lock:
-            if rt.flex < request.amount or request.amount <= 0:
-                return parking_pb2.Ack(success=False, message=f"insufficient flex bays ({rt.flex})")
-            rt.flex -= request.amount
-            transfer_id = f"TX-{int(time.time() * 1000) % 100000}"
-            rt.channels[request.to_node].post("transfer", (transfer_id, request.amount), request.delay_ms / 1000.0)
-        rt.log(f"sent {request.amount} flex bays to {request.to_node} (in flight {request.delay_ms} ms)")
-        publish_event("FLEX_SENT", source=rt.node_id, data={"to": request.to_node, "amount": request.amount, "transfer_id": transfer_id})
-        return parking_pb2.Ack(success=True, message=transfer_id)
-
-    def TransferFlex(self, request, context):
-        self._check_alive(context)
-        rt = self.rt
-        with rt.cl.lock:
-            rt.flex += request.amount
-            rt.cl.on_message(request.from_node, request.amount)
-        rt.log(f"received {request.amount} flex bays from {request.from_node}")
-        publish_event("FLEX_RECEIVED", source=rt.node_id, data={"from": request.from_node, "amount": request.amount})
-        return parking_pb2.Ack(success=True, message="received")
-
-    def Marker(self, request, context):
-        self._check_alive(context)
-        self.rt.log(f"MARKER({request.snapshot_id}) from {request.from_node}")
-        self.rt.cl.on_marker(request.snapshot_id, request.from_node)
-        return parking_pb2.Ack(success=True, message="ok")
-
-    def StartSnapshot(self, request, context):
-        self._check_alive(context)
-        self.rt.log(f"initiating snapshot {request.snapshot_id}")
-        publish_event("SNAPSHOT_STARTED", source=self.rt.node_id, data={"snapshot_id": request.snapshot_id})
-        self.rt.cl.initiate(request.snapshot_id)
-        return parking_pb2.Ack(success=True, message="initiated")
-
-    def GetSnapshot(self, request, context):
-        self._check_alive(context)
-        snap = self.rt.cl.get(request.snapshot_id)
-        if snap is None:
-            return parking_pb2.SnapshotResponse(node_id=self.rt.node_id, known=False)
-        return parking_pb2.SnapshotResponse(
-            node_id=self.rt.node_id, known=True, complete=snap["complete"], recorded_flex=snap["state"],
-            channels=[parking_pb2.ChannelState(from_node=p, in_flight=m) for p, m in snap["channels"].items()],
-            waiting_on=snap["waiting_on"],
-        )
 
     # ------------------------------------------------------------- ledger
 
@@ -444,21 +369,32 @@ def _p2p_poll_loop(rt: ZoneRuntime):
                 })
 
 
+def _init_overflow_lot(rt: ZoneRuntime):
+    """Create the shared overflow counter if no zone has yet (SET NX: first one wins)."""
+    for _ in range(10):
+        try:
+            if get_redis_client().set(config.OVERFLOW_KEY, config.OVERFLOW_CAPACITY, nx=True):
+                rt.log(f"overflow lot initialised with {config.OVERFLOW_CAPACITY} slots")
+            return
+        except Exception:
+            time.sleep(1)  # Redis not up yet
+
+
 def serve(zone_key: str):
-    node_id = config.ZONES[zone_key]["node_id"]
-    clocks.init_clocks(node_id, config.CLOCK_SKEW.get(node_id, 0.0))
+    clocks.init_clock()
     rt = ZoneRuntime(zone_key)
 
     server = make_server(max_workers=32)
     parking_pb2_grpc.add_ZoneServiceServicer_to_server(ZoneServicer(rt), server)
     server.add_insecure_port(f"{config.BIND_HOST}:{rt.port}")
     server.start()
-    rt.log(f"Starting on {config.BIND_HOST}:{rt.port} (zone_id={rt.zone_id}, slots={rt.total_slots}, clock skew {config.CLOCK_SKEW.get(node_id, 0):+.1f}s)")
+    rt.log(f"Starting on {config.BIND_HOST}:{rt.port} (zone_id={rt.zone_id}, slots={rt.total_slots})")
 
     start_p2p_server(config.BIND_HOST, rt.p2p_port, lambda msg: _p2p_handle_message(rt, msg))
     rt.log(f"P2P listener on {config.BIND_HOST}:{rt.p2p_port}")
 
     def join():
+        _init_overflow_lot(rt)
         rt.register()
         rt.sync_ledger()  # a restarted zone starts with an empty chain and catches up from its peers
 

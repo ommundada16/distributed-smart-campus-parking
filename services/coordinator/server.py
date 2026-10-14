@@ -8,7 +8,8 @@ rebuilds its registry by probing the zones, and the system keeps working.
 The leader's jobs:
   * zone registry + heartbeat failure detection            (Unit 2 fault tolerance)
   * load-aware zone allocation (first_fit/round_robin/least_loaded)
-  * Berkeley clock synchronisation across all nodes         (Unit 3)
+  * when every zone is full, booking the shared overflow lot through a zone,
+    which takes it under Ricart-Agrawala mutual exclusion   (Unit 3)
   * committing every booking to the replicated ledger       (Unit 4)
   * asking the serverless pricing function for a quote      (Unit 4)
 
@@ -18,6 +19,7 @@ Run:  python -m services.coordinator.server --id 3
 import sys
 import os
 import argparse
+import itertools
 import threading
 import time
 import uuid
@@ -34,7 +36,6 @@ from communication.grpc import parking_pb2, parking_pb2_grpc
 from communication.grpc.grpc_client import make_server, replica_stub, zone_stub_for
 from communication.messaging.message_bus import get_redis_client, publish_event
 from distributed import clocks
-from distributed.berkeley import berkeley_adjustments, estimate_remote_diff
 from distributed.election import BullyElection
 from distributed.ledger import Block, make_block, make_genesis
 from services.coordinator.policies import Policies
@@ -67,6 +68,7 @@ class Coordinator:
         self.nodes: dict[str, NodeRecord] = {}
         self.lock = threading.RLock()
         self.policies = Policies()
+        self.overflow_turn = itertools.count()  # rotates which zone admits the next overflow booking
 
         self.ledger_lock = threading.Lock()
         self.ledger_head: Block | None = None
@@ -163,8 +165,7 @@ class Coordinator:
         with self.ledger_lock:
             if self.ledger_head is None:
                 self._load_ledger_head()
-            lamport = clocks.get_process_clock().local_event()[0]
-            block = make_block(self.ledger_head, tx, lamport, clocks.physical_clock.now())
+            block = make_block(self.ledger_head, tx, clocks.get_clock().tick(), time.time())
             raw = block.to_json()
 
             def send(key):
@@ -282,67 +283,6 @@ class CoordinatorServicer(parking_pb2_grpc.CoordinatorServicer):
             self.c.election.reset_after_recovery()
         return parking_pb2.SetFailureModeResponse(success=True, status=status)
 
-    # ---- clocks -----------------------------------------------------------
-
-    def _clock_info(self):
-        lamport, vc = clocks.get_process_clock().peek()
-        return parking_pb2.ClockInfo(
-            node_id=self.c.node_id, lamport=lamport, vclock_json=clocks.encode_vc(vc),
-            physical_time=clocks.physical_clock.now(), offset=clocks.physical_clock.offset,
-        )
-
-    def GetClockInfo(self, request, context):
-        self._alive(context)
-        return self._clock_info()
-
-    def AdjustClock(self, request, context):
-        self._alive(context)
-        if request.absolute:
-            clocks.physical_clock.set_offset(request.delta)
-        else:
-            clocks.physical_clock.adjust(request.delta)
-        return self._clock_info()
-
-    def SyncClocks(self, request, context):
-        """Berkeley algorithm: this leader is the time daemon."""
-        self._leader_only(context)
-        diffs, before, rtts, stubs = {}, {}, {}, {}
-
-        participants = [(n.node_id, zone_stub_for(n.zone_key)) for n in self.c.online_nodes()]
-        participants += [(config.COORDINATORS[i]["node_id"], replica_stub(i)) for i in config.coordinator_ids() if i != self.c.id]
-
-        for node_id, stub in participants:
-            try:
-                t_send = time.perf_counter()
-                info = stub.GetClockInfo(parking_pb2.Empty(), timeout=2)
-                t_recv = time.perf_counter()
-            except grpc.RpcError:
-                continue
-            diffs[node_id] = estimate_remote_diff(info.physical_time, t_send, t_recv, clocks.physical_clock.now())
-            before[node_id] = info.offset
-            rtts[node_id] = (t_recv - t_send) * 1000
-            stubs[node_id] = stub
-
-        own_before = clocks.physical_clock.offset
-        adjustments = berkeley_adjustments(diffs, master=self.c.node_id)
-
-        rows = [parking_pb2.ClockRow(node_id=self.c.node_id, offset_before=own_before, adjustment=adjustments[self.c.node_id],
-                                     offset_after=own_before + adjustments[self.c.node_id], rtt_ms=0)]
-        clocks.physical_clock.adjust(adjustments[self.c.node_id])
-        for node_id, stub in stubs.items():
-            try:
-                stub.AdjustClock(parking_pb2.AdjustClockRequest(delta=adjustments[node_id], absolute=False), timeout=2)
-            except grpc.RpcError:
-                continue
-            rows.append(parking_pb2.ClockRow(node_id=node_id, offset_before=before[node_id], adjustment=adjustments[node_id],
-                                             offset_after=before[node_id] + adjustments[node_id], rtt_ms=rtts[node_id]))
-
-        publish_event("CLOCKS_SYNCED", source=self.c.node_id, data={
-            "method": "Berkeley", "nodes": len(rows), "max_adjustment_ms": round(max(abs(a) for a in adjustments.values()) * 1000, 1),
-        })
-        return parking_pb2.SyncClocksResponse(success=True, method="Berkeley (leader = time daemon)", rows=rows,
-                                              message=f"{len(rows)} clocks synchronised")
-
     # ---- registry / heartbeat --------------------------------------------
 
     def RegisterNode(self, request, context):
@@ -406,14 +346,73 @@ class CoordinatorServicer(parking_pb2_grpc.CoordinatorServicer):
             return parking_pb2.FindParkingResponse(
                 success=True, zone_id=node.zone_id, node_id=node.node_id, slot_id=resp.slot_id,
                 reservation_id=reservation_id, message="Slot reserved", price_per_hour=price, price_source=price_source,
-                ledger_block=block_index, policy=policy, served_by=c.node_id, lamport=clocks.get_process_clock().lamport.value(),
+                ledger_block=block_index, policy=policy, served_by=c.node_id, lamport=clocks.get_clock().value(),
+            )
+
+        return self._book_overflow(policy)
+
+    def _book_overflow(self, policy: str):
+        """Every zone is full: fall back to the overflow lot shared by all zones.
+        The leader hands the booking to a zone (rotating, like a car arriving at
+        that zone's gate); the zone takes the lot under Ricart-Agrawala, because
+        the other zones may be admitting cars to it at the same moment."""
+        c = self.c
+        nodes = sorted(c.online_nodes(), key=lambda n: n.node_id)
+        if nodes:
+            start = next(c.overflow_turn) % len(nodes)
+            nodes = nodes[start:] + nodes[:start]
+        for node in nodes:
+            reservation_id = f"RES-OVF-{uuid.uuid4().hex[:8].upper()}"
+            try:
+                resp = zone_stub_for(node.zone_key).OverflowBook(
+                    parking_pb2.OverflowBookRequest(use_mutex=True, booking_id=reservation_id), timeout=10)
+            except grpc.RpcError as exc:
+                c.log(f"RPC error contacting {node.node_id}: {exc.code()}")
+                continue
+            publish_event("RPC_CALL", source=c.node_id, data={
+                "target": node.node_id, "method": "OverflowBook()", "result": "booked" if resp.success else resp.message,
+            })
+            if not resp.success:
+                break  # the lot is shared: if it is full for one zone it is full for all
+
+            block_index = c.commit_block({
+                "type": "RESERVE", "reservation_id": reservation_id, "zone_id": "OVERFLOW",
+                "slot_id": "OVERFLOW", "policy": "overflow", "admitted_by": node.node_id,
+            })
+            price, price_source = c.quote_price("OVERFLOW", 0, 1)
+            publish_event("PARKING_RESERVED", source=node.node_id, data={
+                "zone_id": "OVERFLOW", "slot_id": "OVERFLOW", "reservation_id": reservation_id, "policy": "overflow",
+            })
+            return parking_pb2.FindParkingResponse(
+                success=True, zone_id="OVERFLOW", node_id=node.node_id, slot_id="OVERFLOW",
+                reservation_id=reservation_id, message="All zones full - overflow lot booked",
+                price_per_hour=price, price_source=price_source, ledger_block=block_index, policy=policy,
+                served_by=c.node_id, lamport=clocks.get_clock().value(),
             )
 
         return parking_pb2.FindParkingResponse(success=False, message="No available parking slots", policy=policy, served_by=c.node_id)
 
+    def _release_overflow(self, reservation_id: str):
+        c = self.c
+        for node in sorted(c.online_nodes(), key=lambda n: n.node_id):  # any zone can release it
+            try:
+                ack = zone_stub_for(node.zone_key).OverflowRelease(
+                    parking_pb2.OverflowReleaseRequest(booking_id=reservation_id), timeout=10)
+            except grpc.RpcError:
+                continue
+            if ack.success:
+                c.commit_block({"type": "RELEASE", "reservation_id": reservation_id, "zone_id": "OVERFLOW", "slot_id": "OVERFLOW"})
+                publish_event("PARKING_RELEASED", source=node.node_id, data={
+                    "zone_id": "OVERFLOW", "slot_id": "OVERFLOW", "reservation_id": reservation_id,
+                })
+            return parking_pb2.ReleaseParkingResponse(success=ack.success, message=ack.message)
+        return parking_pb2.ReleaseParkingResponse(success=False, message="No zone reachable to release the overflow slot")
+
     def ReleaseParking(self, request, context):
         self._leader_only(context)
         c = self.c
+        if request.reservation_id.startswith("RES-OVF-"):
+            return self._release_overflow(request.reservation_id)
         parts = request.reservation_id.split("-")
         zone_key = parts[1] if len(parts) == 3 and parts[1] in config.ZONES else None
         if zone_key is None:
@@ -457,8 +456,7 @@ class CoordinatorServicer(parking_pb2_grpc.CoordinatorServicer):
                 last_heartbeat=datetime.fromtimestamp(node.last_heartbeat, tz=timezone.utc).isoformat(),
                 total_slots=node.total_slots,
                 available_slots=st.available_slots if st else 0, occupied_slots=st.occupied_slots if st else 0,
-                reserved_slots=st.reserved_slots if st else 0, flex_bays=st.flex_bays if st else 0,
-                ledger_length=st.ledger_length if st else 0,
+                reserved_slots=st.reserved_slots if st else 0, ledger_length=st.ledger_length if st else 0,
             ))
         status = self.c.election.status()
         return parking_pb2.SystemStatusResponse(nodes=infos, leader_id=status["leader_id"] or 0, term=status["term"])
@@ -483,8 +481,8 @@ def _heartbeat_monitor(c: Coordinator):
 
 
 def serve(coord_id: int):
+    clocks.init_clock()
     c = Coordinator(coord_id)
-    clocks.init_clocks(c.node_id, config.CLOCK_SKEW.get(c.node_id, 0.0))
 
     server = make_server(max_workers=24)
     parking_pb2_grpc.add_CoordinatorServicer_to_server(CoordinatorServicer(c), server)

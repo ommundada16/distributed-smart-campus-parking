@@ -54,17 +54,14 @@ def _decode(entry_id: str, fields: dict) -> dict:
         event["data"] = {}
     if "lamport" in event:
         event["lamport"] = int(event["lamport"])
-    if "vclock" in event:
-        event["vclock"] = clocks.decode_vc(event["vclock"])
     return event
 
 
 def publish_event(event_type: str, source: str, data: dict | None = None):
     """Publish an event onto the parking_events stream. Fire-and-forget.
 
-    Every event is stamped with the publisher's logical clocks (Lamport + vector)
-    and its - possibly skewed - physical clock, so consumers can order events by
-    causality instead of trusting wall-clock time.
+    Every event is stamped with the publisher's Lamport timestamp, so events
+    from different nodes can be ordered consistently with causality.
     """
     client = get_redis_client()
     payload = {
@@ -73,12 +70,9 @@ def publish_event(event_type: str, source: str, data: dict | None = None):
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "data": json.dumps(data or {}),
     }
-    pc = clocks.get_process_clock()
-    if pc is not None:
-        lamport, vc = pc.local_event()
-        payload["lamport"] = str(lamport)
-        payload["vclock"] = clocks.encode_vc(vc)
-        payload["node_time"] = datetime.fromtimestamp(clocks.physical_clock.now(), tz=timezone.utc).isoformat()
+    clock = clocks.get_clock()
+    if clock is not None:
+        payload["lamport"] = str(clock.tick())
     try:
         client.xadd(config.REDIS_STREAM, payload, maxlen=2000, approximate=True)
     except redis.exceptions.RedisError as exc:

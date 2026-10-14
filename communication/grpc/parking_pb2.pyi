@@ -61,7 +61,7 @@ class ZoneStatusRequest(_message.Message):
     def __init__(self) -> None: ...
 
 class ZoneStatusResponse(_message.Message):
-    __slots__ = ("zone_id", "node_id", "total_slots", "available_slots", "occupied_slots", "reserved_slots", "status", "flex_bays", "ledger_length")
+    __slots__ = ("zone_id", "node_id", "total_slots", "available_slots", "occupied_slots", "reserved_slots", "status", "ledger_length")
     ZONE_ID_FIELD_NUMBER: _ClassVar[int]
     NODE_ID_FIELD_NUMBER: _ClassVar[int]
     TOTAL_SLOTS_FIELD_NUMBER: _ClassVar[int]
@@ -69,7 +69,6 @@ class ZoneStatusResponse(_message.Message):
     OCCUPIED_SLOTS_FIELD_NUMBER: _ClassVar[int]
     RESERVED_SLOTS_FIELD_NUMBER: _ClassVar[int]
     STATUS_FIELD_NUMBER: _ClassVar[int]
-    FLEX_BAYS_FIELD_NUMBER: _ClassVar[int]
     LEDGER_LENGTH_FIELD_NUMBER: _ClassVar[int]
     zone_id: str
     node_id: str
@@ -78,9 +77,8 @@ class ZoneStatusResponse(_message.Message):
     occupied_slots: int
     reserved_slots: int
     status: str
-    flex_bays: int
     ledger_length: int
-    def __init__(self, zone_id: _Optional[str] = ..., node_id: _Optional[str] = ..., total_slots: _Optional[int] = ..., available_slots: _Optional[int] = ..., occupied_slots: _Optional[int] = ..., reserved_slots: _Optional[int] = ..., status: _Optional[str] = ..., flex_bays: _Optional[int] = ..., ledger_length: _Optional[int] = ...) -> None: ...
+    def __init__(self, zone_id: _Optional[str] = ..., node_id: _Optional[str] = ..., total_slots: _Optional[int] = ..., available_slots: _Optional[int] = ..., occupied_slots: _Optional[int] = ..., reserved_slots: _Optional[int] = ..., status: _Optional[str] = ..., ledger_length: _Optional[int] = ...) -> None: ...
 
 class AvailableSlotsRequest(_message.Message):
     __slots__ = ()
@@ -181,7 +179,7 @@ class SystemStatusRequest(_message.Message):
     def __init__(self) -> None: ...
 
 class NodeInfo(_message.Message):
-    __slots__ = ("node_id", "zone_id", "host", "port", "status", "last_heartbeat", "total_slots", "available_slots", "occupied_slots", "reserved_slots", "flex_bays", "ledger_length")
+    __slots__ = ("node_id", "zone_id", "host", "port", "status", "last_heartbeat", "total_slots", "available_slots", "occupied_slots", "reserved_slots", "ledger_length")
     NODE_ID_FIELD_NUMBER: _ClassVar[int]
     ZONE_ID_FIELD_NUMBER: _ClassVar[int]
     HOST_FIELD_NUMBER: _ClassVar[int]
@@ -192,7 +190,6 @@ class NodeInfo(_message.Message):
     AVAILABLE_SLOTS_FIELD_NUMBER: _ClassVar[int]
     OCCUPIED_SLOTS_FIELD_NUMBER: _ClassVar[int]
     RESERVED_SLOTS_FIELD_NUMBER: _ClassVar[int]
-    FLEX_BAYS_FIELD_NUMBER: _ClassVar[int]
     LEDGER_LENGTH_FIELD_NUMBER: _ClassVar[int]
     node_id: str
     zone_id: str
@@ -204,9 +201,8 @@ class NodeInfo(_message.Message):
     available_slots: int
     occupied_slots: int
     reserved_slots: int
-    flex_bays: int
     ledger_length: int
-    def __init__(self, node_id: _Optional[str] = ..., zone_id: _Optional[str] = ..., host: _Optional[str] = ..., port: _Optional[int] = ..., status: _Optional[str] = ..., last_heartbeat: _Optional[str] = ..., total_slots: _Optional[int] = ..., available_slots: _Optional[int] = ..., occupied_slots: _Optional[int] = ..., reserved_slots: _Optional[int] = ..., flex_bays: _Optional[int] = ..., ledger_length: _Optional[int] = ...) -> None: ...
+    def __init__(self, node_id: _Optional[str] = ..., zone_id: _Optional[str] = ..., host: _Optional[str] = ..., port: _Optional[int] = ..., status: _Optional[str] = ..., last_heartbeat: _Optional[str] = ..., total_slots: _Optional[int] = ..., available_slots: _Optional[int] = ..., occupied_slots: _Optional[int] = ..., reserved_slots: _Optional[int] = ..., ledger_length: _Optional[int] = ...) -> None: ...
 
 class SystemStatusResponse(_message.Message):
     __slots__ = ("nodes", "leader_id", "term")
@@ -294,54 +290,6 @@ class LeaderInfo(_message.Message):
     port: int
     def __init__(self, self_id: _Optional[int] = ..., self_node: _Optional[str] = ..., leader_id: _Optional[int] = ..., term: _Optional[int] = ..., state: _Optional[str] = ..., host: _Optional[str] = ..., port: _Optional[int] = ...) -> None: ...
 
-class ClockInfo(_message.Message):
-    __slots__ = ("node_id", "lamport", "vclock_json", "physical_time", "offset")
-    NODE_ID_FIELD_NUMBER: _ClassVar[int]
-    LAMPORT_FIELD_NUMBER: _ClassVar[int]
-    VCLOCK_JSON_FIELD_NUMBER: _ClassVar[int]
-    PHYSICAL_TIME_FIELD_NUMBER: _ClassVar[int]
-    OFFSET_FIELD_NUMBER: _ClassVar[int]
-    node_id: str
-    lamport: int
-    vclock_json: str
-    physical_time: float
-    offset: float
-    def __init__(self, node_id: _Optional[str] = ..., lamport: _Optional[int] = ..., vclock_json: _Optional[str] = ..., physical_time: _Optional[float] = ..., offset: _Optional[float] = ...) -> None: ...
-
-class AdjustClockRequest(_message.Message):
-    __slots__ = ("delta", "absolute")
-    DELTA_FIELD_NUMBER: _ClassVar[int]
-    ABSOLUTE_FIELD_NUMBER: _ClassVar[int]
-    delta: float
-    absolute: bool
-    def __init__(self, delta: _Optional[float] = ..., absolute: _Optional[bool] = ...) -> None: ...
-
-class ClockRow(_message.Message):
-    __slots__ = ("node_id", "offset_before", "adjustment", "offset_after", "rtt_ms")
-    NODE_ID_FIELD_NUMBER: _ClassVar[int]
-    OFFSET_BEFORE_FIELD_NUMBER: _ClassVar[int]
-    ADJUSTMENT_FIELD_NUMBER: _ClassVar[int]
-    OFFSET_AFTER_FIELD_NUMBER: _ClassVar[int]
-    RTT_MS_FIELD_NUMBER: _ClassVar[int]
-    node_id: str
-    offset_before: float
-    adjustment: float
-    offset_after: float
-    rtt_ms: float
-    def __init__(self, node_id: _Optional[str] = ..., offset_before: _Optional[float] = ..., adjustment: _Optional[float] = ..., offset_after: _Optional[float] = ..., rtt_ms: _Optional[float] = ...) -> None: ...
-
-class SyncClocksResponse(_message.Message):
-    __slots__ = ("success", "method", "rows", "message")
-    SUCCESS_FIELD_NUMBER: _ClassVar[int]
-    METHOD_FIELD_NUMBER: _ClassVar[int]
-    ROWS_FIELD_NUMBER: _ClassVar[int]
-    MESSAGE_FIELD_NUMBER: _ClassVar[int]
-    success: bool
-    method: str
-    rows: _containers.RepeatedCompositeFieldContainer[ClockRow]
-    message: str
-    def __init__(self, success: _Optional[bool] = ..., method: _Optional[str] = ..., rows: _Optional[_Iterable[_Union[ClockRow, _Mapping]]] = ..., message: _Optional[str] = ...) -> None: ...
-
 class OverflowBookRequest(_message.Message):
     __slots__ = ("use_mutex", "hold_ms", "booking_id")
     USE_MUTEX_FIELD_NUMBER: _ClassVar[int]
@@ -353,13 +301,12 @@ class OverflowBookRequest(_message.Message):
     def __init__(self, use_mutex: _Optional[bool] = ..., hold_ms: _Optional[int] = ..., booking_id: _Optional[str] = ...) -> None: ...
 
 class OverflowBookResponse(_message.Message):
-    __slots__ = ("success", "message", "node_id", "saw_free", "lamport", "vclock_json", "entered_at", "exited_at", "trace")
+    __slots__ = ("success", "message", "node_id", "saw_free", "request_ts", "entered_at", "exited_at", "trace")
     SUCCESS_FIELD_NUMBER: _ClassVar[int]
     MESSAGE_FIELD_NUMBER: _ClassVar[int]
     NODE_ID_FIELD_NUMBER: _ClassVar[int]
     SAW_FREE_FIELD_NUMBER: _ClassVar[int]
-    LAMPORT_FIELD_NUMBER: _ClassVar[int]
-    VCLOCK_JSON_FIELD_NUMBER: _ClassVar[int]
+    REQUEST_TS_FIELD_NUMBER: _ClassVar[int]
     ENTERED_AT_FIELD_NUMBER: _ClassVar[int]
     EXITED_AT_FIELD_NUMBER: _ClassVar[int]
     TRACE_FIELD_NUMBER: _ClassVar[int]
@@ -367,12 +314,17 @@ class OverflowBookResponse(_message.Message):
     message: str
     node_id: str
     saw_free: int
-    lamport: int
-    vclock_json: str
+    request_ts: int
     entered_at: float
     exited_at: float
     trace: _containers.RepeatedScalarFieldContainer[str]
-    def __init__(self, success: _Optional[bool] = ..., message: _Optional[str] = ..., node_id: _Optional[str] = ..., saw_free: _Optional[int] = ..., lamport: _Optional[int] = ..., vclock_json: _Optional[str] = ..., entered_at: _Optional[float] = ..., exited_at: _Optional[float] = ..., trace: _Optional[_Iterable[str]] = ...) -> None: ...
+    def __init__(self, success: _Optional[bool] = ..., message: _Optional[str] = ..., node_id: _Optional[str] = ..., saw_free: _Optional[int] = ..., request_ts: _Optional[int] = ..., entered_at: _Optional[float] = ..., exited_at: _Optional[float] = ..., trace: _Optional[_Iterable[str]] = ...) -> None: ...
+
+class OverflowReleaseRequest(_message.Message):
+    __slots__ = ("booking_id",)
+    BOOKING_ID_FIELD_NUMBER: _ClassVar[int]
+    booking_id: str
+    def __init__(self, booking_id: _Optional[str] = ...) -> None: ...
 
 class RaRequest(_message.Message):
     __slots__ = ("resource", "ts", "from_node")
@@ -389,70 +341,6 @@ class RaReply(_message.Message):
     GRANTED_FIELD_NUMBER: _ClassVar[int]
     granted: bool
     def __init__(self, granted: _Optional[bool] = ...) -> None: ...
-
-class StartTransferRequest(_message.Message):
-    __slots__ = ("to_node", "amount", "delay_ms")
-    TO_NODE_FIELD_NUMBER: _ClassVar[int]
-    AMOUNT_FIELD_NUMBER: _ClassVar[int]
-    DELAY_MS_FIELD_NUMBER: _ClassVar[int]
-    to_node: str
-    amount: int
-    delay_ms: int
-    def __init__(self, to_node: _Optional[str] = ..., amount: _Optional[int] = ..., delay_ms: _Optional[int] = ...) -> None: ...
-
-class TransferRequest(_message.Message):
-    __slots__ = ("transfer_id", "from_node", "amount")
-    TRANSFER_ID_FIELD_NUMBER: _ClassVar[int]
-    FROM_NODE_FIELD_NUMBER: _ClassVar[int]
-    AMOUNT_FIELD_NUMBER: _ClassVar[int]
-    transfer_id: str
-    from_node: str
-    amount: int
-    def __init__(self, transfer_id: _Optional[str] = ..., from_node: _Optional[str] = ..., amount: _Optional[int] = ...) -> None: ...
-
-class MarkerRequest(_message.Message):
-    __slots__ = ("snapshot_id", "from_node")
-    SNAPSHOT_ID_FIELD_NUMBER: _ClassVar[int]
-    FROM_NODE_FIELD_NUMBER: _ClassVar[int]
-    snapshot_id: str
-    from_node: str
-    def __init__(self, snapshot_id: _Optional[str] = ..., from_node: _Optional[str] = ...) -> None: ...
-
-class StartSnapshotRequest(_message.Message):
-    __slots__ = ("snapshot_id",)
-    SNAPSHOT_ID_FIELD_NUMBER: _ClassVar[int]
-    snapshot_id: str
-    def __init__(self, snapshot_id: _Optional[str] = ...) -> None: ...
-
-class GetSnapshotRequest(_message.Message):
-    __slots__ = ("snapshot_id",)
-    SNAPSHOT_ID_FIELD_NUMBER: _ClassVar[int]
-    snapshot_id: str
-    def __init__(self, snapshot_id: _Optional[str] = ...) -> None: ...
-
-class ChannelState(_message.Message):
-    __slots__ = ("from_node", "in_flight")
-    FROM_NODE_FIELD_NUMBER: _ClassVar[int]
-    IN_FLIGHT_FIELD_NUMBER: _ClassVar[int]
-    from_node: str
-    in_flight: _containers.RepeatedScalarFieldContainer[int]
-    def __init__(self, from_node: _Optional[str] = ..., in_flight: _Optional[_Iterable[int]] = ...) -> None: ...
-
-class SnapshotResponse(_message.Message):
-    __slots__ = ("node_id", "known", "complete", "recorded_flex", "channels", "waiting_on")
-    NODE_ID_FIELD_NUMBER: _ClassVar[int]
-    KNOWN_FIELD_NUMBER: _ClassVar[int]
-    COMPLETE_FIELD_NUMBER: _ClassVar[int]
-    RECORDED_FLEX_FIELD_NUMBER: _ClassVar[int]
-    CHANNELS_FIELD_NUMBER: _ClassVar[int]
-    WAITING_ON_FIELD_NUMBER: _ClassVar[int]
-    node_id: str
-    known: bool
-    complete: bool
-    recorded_flex: int
-    channels: _containers.RepeatedCompositeFieldContainer[ChannelState]
-    waiting_on: _containers.RepeatedScalarFieldContainer[str]
-    def __init__(self, node_id: _Optional[str] = ..., known: _Optional[bool] = ..., complete: _Optional[bool] = ..., recorded_flex: _Optional[int] = ..., channels: _Optional[_Iterable[_Union[ChannelState, _Mapping]]] = ..., waiting_on: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class AppendBlockRequest(_message.Message):
     __slots__ = ("block_json",)

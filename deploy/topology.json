@@ -2,7 +2,7 @@
   {"name": "web (Nginx)", "role": "Load balancer + edge cache + UI", "replicas": 1, "cpu": "0.5", "memory": "128 MB", "image": "nginx:1.27-alpine", "ports": "8080 -> 80"},
   {"name": "gateway", "role": "HTTP/WebSocket API gateway (stateless)", "replicas": 2, "cpu": "0.5", "memory": "256 MB", "image": "python:3.12-slim + FastAPI", "ports": "8000"},
   {"name": "coordinator", "role": "Elected leader + 2 standbys (Bully election)", "replicas": 3, "cpu": "0.5", "memory": "256 MB", "image": "python:3.12-slim + gRPC", "ports": "5101-5103"},
-  {"name": "zone-a / zone-b / zone-c", "role": "Slot service + mutex + snapshot + ledger replica", "replicas": 3, "cpu": "0.25 each", "memory": "128 MB each", "image": "python:3.12-slim + gRPC", "ports": "5001-5003 (+ P2P 6001-6003)"},
+  {"name": "zone-a / zone-b / zone-c", "role": "Slot service + overflow-lot mutex + ledger replica", "replicas": 3, "cpu": "0.25 each", "memory": "128 MB each", "image": "python:3.12-slim + gRPC", "ports": "5001-5003 (+ P2P 6001-6003)"},
   {"name": "redis", "role": "Event stream (Redis Streams) + shared config", "replicas": 1, "cpu": "0.5", "memory": "128 MB", "image": "redis:7-alpine", "ports": "6379"},
   {"name": "faas", "role": "Serverless runtime (pricing, receipt)", "replicas": 1, "cpu": "0.25", "memory": "128 MB", "image": "python:3.12-slim + FastAPI", "ports": "9000"},
   {"name": "analytics", "role": "MapReduce batch worker pool", "replicas": 1, "cpu": "1.0", "memory": "512 MB", "image": "python:3.12-slim + multiprocessing", "ports": "9100"}

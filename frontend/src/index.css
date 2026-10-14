@@ -262,9 +262,7 @@ pre.trace {
 .card.selected { border: 2px solid var(--primary); background: #f5f8ff; }
 
 .comm-tag.election { background: #f3e8ff; color: #7a2fc9; }
-.comm-tag.clock { background: #e0f5f8; color: #0e7490; }
 .comm-tag.mutex { background: #fde8e8; color: #b42318; }
-.comm-tag.snapshot { background: #e8f0ff; color: #2f5fdb; }
 .comm-tag.ledger { background: #fff3dd; color: #a16207; }
 .comm-tag.balance { background: #e6f7ec; color: #1f9d55; }
 .event-clock { color: var(--primary); font-weight: 700; font-size: 12px; min-width: 56px; }

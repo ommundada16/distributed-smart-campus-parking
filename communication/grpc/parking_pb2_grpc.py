@@ -60,11 +60,6 @@ class CoordinatorStub:
                 request_serializer=parking__pb2.SystemStatusRequest.SerializeToString,
                 response_deserializer=parking__pb2.SystemStatusResponse.FromString,
                 _registered_method=True)
-        self.SyncClocks = channel.unary_unary(
-                '/parking.Coordinator/SyncClocks',
-                request_serializer=parking__pb2.Empty.SerializeToString,
-                response_deserializer=parking__pb2.SyncClocksResponse.FromString,
-                _registered_method=True)
         self.Election = channel.unary_unary(
                 '/parking.Coordinator/Election',
                 request_serializer=parking__pb2.ElectionRequest.SerializeToString,
@@ -84,16 +79,6 @@ class CoordinatorStub:
                 '/parking.Coordinator/WhoIsLeader',
                 request_serializer=parking__pb2.Empty.SerializeToString,
                 response_deserializer=parking__pb2.LeaderInfo.FromString,
-                _registered_method=True)
-        self.GetClockInfo = channel.unary_unary(
-                '/parking.Coordinator/GetClockInfo',
-                request_serializer=parking__pb2.Empty.SerializeToString,
-                response_deserializer=parking__pb2.ClockInfo.FromString,
-                _registered_method=True)
-        self.AdjustClock = channel.unary_unary(
-                '/parking.Coordinator/AdjustClock',
-                request_serializer=parking__pb2.AdjustClockRequest.SerializeToString,
-                response_deserializer=parking__pb2.ClockInfo.FromString,
                 _registered_method=True)
         self.SetFailureMode = channel.unary_unary(
                 '/parking.Coordinator/SetFailureMode',
@@ -138,13 +123,6 @@ class CoordinatorServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def SyncClocks(self, request, context):
-        """Berkeley algorithm
-        """
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
     def Election(self, request, context):
         """Bully election + leader beacon (replica <-> replica)
         """
@@ -167,18 +145,6 @@ class CoordinatorServicer:
     def WhoIsLeader(self, request, context):
         """Any replica answers these
         """
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def GetClockInfo(self, request, context):
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def AdjustClock(self, request, context):
-        """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
@@ -217,11 +183,6 @@ def add_CoordinatorServicer_to_server(servicer, server):
                     request_deserializer=parking__pb2.SystemStatusRequest.FromString,
                     response_serializer=parking__pb2.SystemStatusResponse.SerializeToString,
             ),
-            'SyncClocks': grpc.unary_unary_rpc_method_handler(
-                    servicer.SyncClocks,
-                    request_deserializer=parking__pb2.Empty.FromString,
-                    response_serializer=parking__pb2.SyncClocksResponse.SerializeToString,
-            ),
             'Election': grpc.unary_unary_rpc_method_handler(
                     servicer.Election,
                     request_deserializer=parking__pb2.ElectionRequest.FromString,
@@ -241,16 +202,6 @@ def add_CoordinatorServicer_to_server(servicer, server):
                     servicer.WhoIsLeader,
                     request_deserializer=parking__pb2.Empty.FromString,
                     response_serializer=parking__pb2.LeaderInfo.SerializeToString,
-            ),
-            'GetClockInfo': grpc.unary_unary_rpc_method_handler(
-                    servicer.GetClockInfo,
-                    request_deserializer=parking__pb2.Empty.FromString,
-                    response_serializer=parking__pb2.ClockInfo.SerializeToString,
-            ),
-            'AdjustClock': grpc.unary_unary_rpc_method_handler(
-                    servicer.AdjustClock,
-                    request_deserializer=parking__pb2.AdjustClockRequest.FromString,
-                    response_serializer=parking__pb2.ClockInfo.SerializeToString,
             ),
             'SetFailureMode': grpc.unary_unary_rpc_method_handler(
                     servicer.SetFailureMode,
@@ -405,33 +356,6 @@ class Coordinator:
             _registered_method=True)
 
     @staticmethod
-    def SyncClocks(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/parking.Coordinator/SyncClocks',
-            parking__pb2.Empty.SerializeToString,
-            parking__pb2.SyncClocksResponse.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
     def Election(request,
             target,
             options=(),
@@ -540,60 +464,6 @@ class Coordinator:
             _registered_method=True)
 
     @staticmethod
-    def GetClockInfo(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/parking.Coordinator/GetClockInfo',
-            parking__pb2.Empty.SerializeToString,
-            parking__pb2.ClockInfo.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def AdjustClock(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/parking.Coordinator/AdjustClock',
-            parking__pb2.AdjustClockRequest.SerializeToString,
-            parking__pb2.ClockInfo.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
     def SetFailureMode(request,
             target,
             options=(),
@@ -656,50 +526,20 @@ class ZoneServiceStub:
                 request_serializer=parking__pb2.SetFailureModeRequest.SerializeToString,
                 response_deserializer=parking__pb2.SetFailureModeResponse.FromString,
                 _registered_method=True)
-        self.GetClockInfo = channel.unary_unary(
-                '/parking.ZoneService/GetClockInfo',
-                request_serializer=parking__pb2.Empty.SerializeToString,
-                response_deserializer=parking__pb2.ClockInfo.FromString,
-                _registered_method=True)
-        self.AdjustClock = channel.unary_unary(
-                '/parking.ZoneService/AdjustClock',
-                request_serializer=parking__pb2.AdjustClockRequest.SerializeToString,
-                response_deserializer=parking__pb2.ClockInfo.FromString,
-                _registered_method=True)
         self.OverflowBook = channel.unary_unary(
                 '/parking.ZoneService/OverflowBook',
                 request_serializer=parking__pb2.OverflowBookRequest.SerializeToString,
                 response_deserializer=parking__pb2.OverflowBookResponse.FromString,
                 _registered_method=True)
+        self.OverflowRelease = channel.unary_unary(
+                '/parking.ZoneService/OverflowRelease',
+                request_serializer=parking__pb2.OverflowReleaseRequest.SerializeToString,
+                response_deserializer=parking__pb2.Ack.FromString,
+                _registered_method=True)
         self.RequestCS = channel.unary_unary(
                 '/parking.ZoneService/RequestCS',
                 request_serializer=parking__pb2.RaRequest.SerializeToString,
                 response_deserializer=parking__pb2.RaReply.FromString,
-                _registered_method=True)
-        self.StartTransfer = channel.unary_unary(
-                '/parking.ZoneService/StartTransfer',
-                request_serializer=parking__pb2.StartTransferRequest.SerializeToString,
-                response_deserializer=parking__pb2.Ack.FromString,
-                _registered_method=True)
-        self.TransferFlex = channel.unary_unary(
-                '/parking.ZoneService/TransferFlex',
-                request_serializer=parking__pb2.TransferRequest.SerializeToString,
-                response_deserializer=parking__pb2.Ack.FromString,
-                _registered_method=True)
-        self.Marker = channel.unary_unary(
-                '/parking.ZoneService/Marker',
-                request_serializer=parking__pb2.MarkerRequest.SerializeToString,
-                response_deserializer=parking__pb2.Ack.FromString,
-                _registered_method=True)
-        self.StartSnapshot = channel.unary_unary(
-                '/parking.ZoneService/StartSnapshot',
-                request_serializer=parking__pb2.StartSnapshotRequest.SerializeToString,
-                response_deserializer=parking__pb2.Ack.FromString,
-                _registered_method=True)
-        self.GetSnapshot = channel.unary_unary(
-                '/parking.ZoneService/GetSnapshot',
-                request_serializer=parking__pb2.GetSnapshotRequest.SerializeToString,
-                response_deserializer=parking__pb2.SnapshotResponse.FromString,
                 _registered_method=True)
         self.AppendBlock = channel.unary_unary(
                 '/parking.ZoneService/AppendBlock',
@@ -762,19 +602,6 @@ class ZoneServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def GetClockInfo(self, request, context):
-        """Clocks / Berkeley
-        """
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def AdjustClock(self, request, context):
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
     def OverflowBook(self, request, context):
         """Ricart-Agrawala mutual exclusion over the shared overflow lot
         """
@@ -782,43 +609,15 @@ class ZoneServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def OverflowRelease(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def RequestCS(self, request, context):
         """peer -> peer
         """
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def StartTransfer(self, request, context):
-        """Chandy-Lamport snapshot over the flexible-bay transfers
-        admin: begin a delayed transfer
-        """
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def TransferFlex(self, request, context):
-        """peer -> peer application message
-        """
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def Marker(self, request, context):
-        """peer -> peer snapshot marker
-        """
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def StartSnapshot(self, request, context):
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def GetSnapshot(self, request, context):
-        """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
@@ -882,50 +681,20 @@ def add_ZoneServiceServicer_to_server(servicer, server):
                     request_deserializer=parking__pb2.SetFailureModeRequest.FromString,
                     response_serializer=parking__pb2.SetFailureModeResponse.SerializeToString,
             ),
-            'GetClockInfo': grpc.unary_unary_rpc_method_handler(
-                    servicer.GetClockInfo,
-                    request_deserializer=parking__pb2.Empty.FromString,
-                    response_serializer=parking__pb2.ClockInfo.SerializeToString,
-            ),
-            'AdjustClock': grpc.unary_unary_rpc_method_handler(
-                    servicer.AdjustClock,
-                    request_deserializer=parking__pb2.AdjustClockRequest.FromString,
-                    response_serializer=parking__pb2.ClockInfo.SerializeToString,
-            ),
             'OverflowBook': grpc.unary_unary_rpc_method_handler(
                     servicer.OverflowBook,
                     request_deserializer=parking__pb2.OverflowBookRequest.FromString,
                     response_serializer=parking__pb2.OverflowBookResponse.SerializeToString,
             ),
+            'OverflowRelease': grpc.unary_unary_rpc_method_handler(
+                    servicer.OverflowRelease,
+                    request_deserializer=parking__pb2.OverflowReleaseRequest.FromString,
+                    response_serializer=parking__pb2.Ack.SerializeToString,
+            ),
             'RequestCS': grpc.unary_unary_rpc_method_handler(
                     servicer.RequestCS,
                     request_deserializer=parking__pb2.RaRequest.FromString,
                     response_serializer=parking__pb2.RaReply.SerializeToString,
-            ),
-            'StartTransfer': grpc.unary_unary_rpc_method_handler(
-                    servicer.StartTransfer,
-                    request_deserializer=parking__pb2.StartTransferRequest.FromString,
-                    response_serializer=parking__pb2.Ack.SerializeToString,
-            ),
-            'TransferFlex': grpc.unary_unary_rpc_method_handler(
-                    servicer.TransferFlex,
-                    request_deserializer=parking__pb2.TransferRequest.FromString,
-                    response_serializer=parking__pb2.Ack.SerializeToString,
-            ),
-            'Marker': grpc.unary_unary_rpc_method_handler(
-                    servicer.Marker,
-                    request_deserializer=parking__pb2.MarkerRequest.FromString,
-                    response_serializer=parking__pb2.Ack.SerializeToString,
-            ),
-            'StartSnapshot': grpc.unary_unary_rpc_method_handler(
-                    servicer.StartSnapshot,
-                    request_deserializer=parking__pb2.StartSnapshotRequest.FromString,
-                    response_serializer=parking__pb2.Ack.SerializeToString,
-            ),
-            'GetSnapshot': grpc.unary_unary_rpc_method_handler(
-                    servicer.GetSnapshot,
-                    request_deserializer=parking__pb2.GetSnapshotRequest.FromString,
-                    response_serializer=parking__pb2.SnapshotResponse.SerializeToString,
             ),
             'AppendBlock': grpc.unary_unary_rpc_method_handler(
                     servicer.AppendBlock,
@@ -1100,60 +869,6 @@ class ZoneService:
             _registered_method=True)
 
     @staticmethod
-    def GetClockInfo(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/parking.ZoneService/GetClockInfo',
-            parking__pb2.Empty.SerializeToString,
-            parking__pb2.ClockInfo.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def AdjustClock(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/parking.ZoneService/AdjustClock',
-            parking__pb2.AdjustClockRequest.SerializeToString,
-            parking__pb2.ClockInfo.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
     def OverflowBook(request,
             target,
             options=(),
@@ -1181,6 +896,33 @@ class ZoneService:
             _registered_method=True)
 
     @staticmethod
+    def OverflowRelease(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/parking.ZoneService/OverflowRelease',
+            parking__pb2.OverflowReleaseRequest.SerializeToString,
+            parking__pb2.Ack.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
     def RequestCS(request,
             target,
             options=(),
@@ -1197,141 +939,6 @@ class ZoneService:
             '/parking.ZoneService/RequestCS',
             parking__pb2.RaRequest.SerializeToString,
             parking__pb2.RaReply.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def StartTransfer(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/parking.ZoneService/StartTransfer',
-            parking__pb2.StartTransferRequest.SerializeToString,
-            parking__pb2.Ack.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def TransferFlex(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/parking.ZoneService/TransferFlex',
-            parking__pb2.TransferRequest.SerializeToString,
-            parking__pb2.Ack.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def Marker(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/parking.ZoneService/Marker',
-            parking__pb2.MarkerRequest.SerializeToString,
-            parking__pb2.Ack.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def StartSnapshot(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/parking.ZoneService/StartSnapshot',
-            parking__pb2.StartSnapshotRequest.SerializeToString,
-            parking__pb2.Ack.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def GetSnapshot(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/parking.ZoneService/GetSnapshot',
-            parking__pb2.GetSnapshotRequest.SerializeToString,
-            parking__pb2.SnapshotResponse.FromString,
             options,
             channel_credentials,
             insecure,
